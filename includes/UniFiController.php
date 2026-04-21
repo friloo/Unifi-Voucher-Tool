@@ -55,19 +55,24 @@ class UniFiController {
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
-        
+
         if ($httpCode !== 200) {
             throw new Exception("Login fehlgeschlagen: HTTP $httpCode");
         }
-        
+
         $data = json_decode($response, true);
 
-        // UniFi OS gibt ein User-Objekt zurück (unique_id/email), die alte API meta.rc = ok
-        $isUnifiOs = is_array($data) && (isset($data['unique_id']) || isset($data['email']));
-        $isOldApi  = isset($data['meta']['rc']) && $data['meta']['rc'] === 'ok';
+        // Expliziter Fehler vom Controller abfangen (meta.rc = error)
+        if (isset($data['meta']['rc']) && $data['meta']['rc'] !== 'ok') {
+            $msg = $data['meta']['msg'] ?? 'Zugangsdaten abgelehnt';
+            throw new Exception("Login fehlgeschlagen: $msg");
+        }
 
-        if (!$isUnifiOs && !$isOldApi) {
-            throw new Exception("Login fehlgeschlagen: Ungültige Antwort vom Controller");
+        // HTTP 200 ohne expliziten Fehler = Erfolg
+        // UniFi OS liefert X-CSRF-Token im Response-Header (bereits via CURLOPT_HEADERFUNCTION extrahiert)
+        // Fallback: TOKEN-Cookie aus der Cookie-Datei lesen
+        if ($this->csrfToken === null) {
+            $this->csrfToken = $this->readCsrfFromCookieFile();
         }
 
         return true;
@@ -80,6 +85,11 @@ class UniFiController {
         $ch = curl_init();
         $url = $this->controllerUrl . $endpoint;
         
+        $headers = ['Content-Type: application/json'];
+        if ($method !== 'GET' && $this->csrfToken !== null) {
+            $headers[] = 'X-CSRF-Token: ' . $this->csrfToken;
+        }
+
         $options = [
             CURLOPT_URL => $url,
             CURLOPT_RETURNTRANSFER => true,
@@ -87,17 +97,14 @@ class UniFiController {
             CURLOPT_COOKIEFILE => $this->cookieFile,
             CURLOPT_TIMEOUT => 10,
             CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_HTTPHEADER => array_filter([
-                'Content-Type: application/json',
-                ($method === 'POST' && $this->csrfToken !== null)
-                    ? 'X-CSRF-Token: ' . $this->csrfToken
-                    : null
-            ])
+            CURLOPT_HTTPHEADER => $headers
         ];
-        
-        if ($method === 'POST' && $data !== null) {
+
+        if ($method === 'GET') {
+            $options[CURLOPT_HTTPGET] = true;
+        } elseif ($method === 'POST') {
             $options[CURLOPT_POST] = true;
-            $options[CURLOPT_POSTFIELDS] = json_encode($data);
+            $options[CURLOPT_POSTFIELDS] = json_encode($data ?? (object)[]);
         }
         
         curl_setopt_array($ch, $options);
@@ -154,7 +161,7 @@ class UniFiController {
     
     // Alle Voucher abrufen
     public function getVouchers() {
-        $response = $this->apiRequest("/proxy/network/api/s/{$this->siteId}/stat/voucher");
+        $response = $this->apiRequest("/proxy/network/api/s/{$this->siteId}/stat/voucher", null, 'GET');
         return $response['data'] ?? [];
     }
 
@@ -208,6 +215,22 @@ class UniFiController {
         return $result;
     }
     
+    // CSRF-Token aus Netscape-Cookie-Datei lesen (Fallback wenn Header nicht gesetzt)
+    private function readCsrfFromCookieFile() {
+        if (!file_exists($this->cookieFile)) {
+            return null;
+        }
+        foreach (file($this->cookieFile) as $line) {
+            $line = trim($line);
+            if ($line === '' || $line[0] === '#') continue;
+            $parts = explode("\t", $line);
+            if (count($parts) >= 7 && strtoupper($parts[5]) === 'TOKEN') {
+                return $parts[6];
+            }
+        }
+        return null;
+    }
+
     // Voucher-Code formatieren (xxxxx-xxxxx-xxxxx)
     private function formatVoucherCode($code) {
         $chunks = str_split($code, 5);

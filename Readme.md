@@ -34,7 +34,7 @@ Ein professionelles, webbasiertes System zur Verwaltung von WLAN-Vouchers für U
   - JSON
 
 ### UniFi Controller
-- UniFi Network Controller 6.0 oder höher
+- UniFi Network Application 7.0+ mit UniFi OS (z.B. UDM, UDR, UniFi OS Server)
 - API-Zugriff aktiviert
 - Lokaler Admin-Account oder dedizierter API-User
 
@@ -43,8 +43,8 @@ Ein professionelles, webbasiertes System zur Verwaltung von WLAN-Vouchers für U
 ### Schritt 1: Dateien hochladen
 ```bash
 # Repository klonen oder ZIP herunterladen
-git clone https://github.com/ihr-username/unifi-voucher-system.git
-cd unifi-voucher-system
+git clone https://github.com/friloo/unifi-voucher-tool.git
+cd unifi-voucher-tool
 
 # Dateien auf den Webserver hochladen
 # Stellen Sie sicher, dass der Webserver-User Schreibrechte hat
@@ -131,7 +131,7 @@ rm install.php
 3. Geben Sie folgende Daten ein:
    - **Name**: Anzeigename (z.B. "Hauptgebäude")
    - **Site ID**: UniFi Site ID (z.B. "default")
-   - **Controller URL**: URL Ihres UniFi Controllers (z.B. "https://unifi.example.com:8443")
+   - **Controller URL**: URL Ihres UniFi Controllers (z.B. "https://unifi.example.com:11443")
    - **Benutzername**: UniFi Admin-Username
    - **Passwort**: UniFi Admin-Passwort
    - **Öffentlicher Zugriff**: Aktivieren für Login-freie Nutzung
@@ -291,6 +291,13 @@ RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 - Stellen Sie sicher, dass cURL aktiviert ist
 - Prüfen Sie SSL-Zertifikate (CURLOPT_SSL_VERIFYPEER)
 
+**UniFi OS: Verbindung schlägt fehl (HTTP 404 oder 401):**
+- Stellen Sie sicher, dass Sie Port 11443 verwenden (nicht 8443)
+- UniFi OS erfordert den Pfad `/proxy/network/api/s/{site}/...` für alle API-Aufrufe
+- Der Login-Endpunkt lautet `/api/auth/login` (nicht `/api/login`)
+- Ältere UniFi Network Controller ohne UniFi OS werden ab Version 2.1.0 nicht mehr unterstützt
+- Bei anhaltenden 401-Fehlern: Prüfen Sie, ob der UniFi-Account lokale API-Rechte besitzt
+
 **Voucher werden nicht erstellt:**
 - Überprüfen Sie die UniFi Controller Logs
 - Prüfen Sie API-Berechtigungen
@@ -333,17 +340,26 @@ cp -r /var/www/html/voucher /backup/voucher-$(date +%Y%m%d)
 
 ## 📝 API-Dokumentation
 
-### UniFi Controller API Endpoints
+### UniFi OS API Endpoints
+
+> **Hinweis:** Ab Version 2.1.0 verwendet dieses Tool die UniFi OS API (Port 11443).
+> Ältere Installationen mit dem klassischen UniFi Network Controller (Port 8443) müssen
+> auf UniFi OS migrieren oder weiterhin Version 2.0.x verwenden.
 
 **Login:**
 ```
-POST /api/login
+POST /api/auth/login
 Body: {"username": "admin", "password": "password"}
+Response-Header: X-CSRF-Token: <token>
 ```
+
+> Der `X-CSRF-Token`-Wert aus dem Login-Response-Header wird automatisch extrahiert und
+> bei allen nachfolgenden POST-Anfragen als `X-CSRF-Token`-Header mitgesendet.
 
 **Voucher erstellen:**
 ```
-POST /api/s/{site_id}/cmd/hotspot
+POST /proxy/network/api/s/{site_id}/cmd/hotspot
+Headers: X-CSRF-Token: <token>
 Body: {
   "cmd": "create-voucher",
   "expire": 480,
@@ -355,7 +371,14 @@ Body: {
 
 **Vouchers abrufen:**
 ```
-GET /api/s/{site_id}/stat/voucher
+GET /proxy/network/api/s/{site_id}/stat/voucher
+```
+
+**Voucher löschen:**
+```
+POST /proxy/network/api/s/{site_id}/cmd/hotspot
+Headers: X-CSRF-Token: <token>
+Body: {"cmd": "delete-voucher", "_id": "<voucher_id>"}
 ```
 
 ## 🤝 Mitwirken
@@ -402,5 +425,5 @@ Geplante Features:
 
 ---
 
-**Version:** 2.0.0  
-**Letztes Update:** Januar 2026
+**Version:** 2.1.0  
+**Letztes Update:** April 2026

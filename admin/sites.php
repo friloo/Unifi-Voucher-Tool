@@ -532,9 +532,9 @@ $currentUser = $auth->getCurrentUser();
                     <div class="form-group">
                         <label for="controller_url">Controller URL *</label>
                         <input type="url" id="controller_url" name="controller_url" required 
-                               placeholder="https://unifi.example.com:8443">
+                               placeholder="https://unifi.example.com:11443">
                         <small style="color: #999; font-size: 12px;">
-                            Vollständige URL inklusive Port (meist 8443)
+                            Vollständige URL inklusive Port (meist 11443 für UniFi OS)
                         </small>
                     </div>
                     

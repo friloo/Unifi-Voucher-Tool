@@ -5,7 +5,8 @@ class UniFiController {
     private $password;
     private $siteId;
     private $cookieFile;
-    
+    private $csrfToken = null;
+
     public function __construct($controllerUrl, $username, $password, $siteId) {
         $this->controllerUrl = rtrim($controllerUrl, '/');
         $this->username = $username;
@@ -25,7 +26,7 @@ class UniFiController {
         $ch = curl_init();
         
         curl_setopt_array($ch, [
-            CURLOPT_URL => $this->controllerUrl . "/api/login",
+            CURLOPT_URL => $this->controllerUrl . "/api/auth/login",
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => json_encode([
                 'username' => $this->username,
@@ -35,7 +36,18 @@ class UniFiController {
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_COOKIEJAR => $this->cookieFile,
             CURLOPT_COOKIEFILE => $this->cookieFile,
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json']
+            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+            CURLOPT_HEADERFUNCTION => function($ch, $header) {
+                $parts = explode(':', $header, 2);
+                if (count($parts) === 2) {
+                    $name  = trim($parts[0]);
+                    $value = trim($parts[1]);
+                    if (strtolower($name) === 'x-csrf-token') {
+                        $this->csrfToken = $value;
+                    }
+                }
+                return strlen($header);
+            }
         ]);
         
         $response = curl_exec($ch);
@@ -67,7 +79,12 @@ class UniFiController {
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_COOKIEFILE => $this->cookieFile,
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json']
+            CURLOPT_HTTPHEADER => array_filter([
+                'Content-Type: application/json',
+                ($method === 'POST' && $this->csrfToken !== null)
+                    ? 'X-CSRF-Token: ' . $this->csrfToken
+                    : null
+            ])
         ];
         
         if ($method === 'POST' && $data !== null) {
@@ -103,8 +120,8 @@ class UniFiController {
             'quota' => (int)$maxUses
         ];
         
-        $response = $this->apiRequest("/api/s/{$this->siteId}/cmd/hotspot", $data);
-        
+        $response = $this->apiRequest("/proxy/network/api/s/{$this->siteId}/cmd/hotspot", $data);
+
         if (!isset($response['data'][0]['create_time'])) {
             throw new Exception("Voucher konnte nicht erstellt werden");
         }
@@ -129,7 +146,7 @@ class UniFiController {
     
     // Alle Voucher abrufen
     public function getVouchers() {
-        $response = $this->apiRequest("/api/s/{$this->siteId}/stat/voucher");
+        $response = $this->apiRequest("/proxy/network/api/s/{$this->siteId}/stat/voucher");
         return $response['data'] ?? [];
     }
 
@@ -196,8 +213,8 @@ class UniFiController {
             '_id' => $voucherId
         ];
         
-        $response = $this->apiRequest("/api/s/{$this->siteId}/cmd/hotspot", $data);
-        
+        $response = $this->apiRequest("/proxy/network/api/s/{$this->siteId}/cmd/hotspot", $data);
+
         return isset($response['meta']['rc']) && $response['meta']['rc'] === 'ok';
     }
     

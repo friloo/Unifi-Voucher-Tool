@@ -201,6 +201,13 @@ class Mailer {
         return $this->send($to, $subject, $body, $isHtml);
     }
     
+    public function sendTestEmail($to) {
+        $appTitle = $this->db->getSetting('app_title', 'UniFi Voucher System');
+        $subject = '[Test] E-Mail-Konfiguration – ' . $appTitle;
+        $body = "Dies ist eine Test-E-Mail von {$appTitle}.\n\nDie SMTP-Konfiguration ist korrekt eingerichtet.";
+        return $this->send($to, $subject, $body, false);
+    }
+
     public function sendUserNotification($to, $userName, $changes) {
         $appTitle = $this->db->getSetting('app_title', 'UniFi Voucher System');
         

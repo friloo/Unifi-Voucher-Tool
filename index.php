@@ -173,6 +173,9 @@ $autoSelectSite = (count($sites) === 1) ? $sites[0]['id'] : 0;
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= htmlspecialchars($appTitle) ?></title>
+    <?php if ($voucherCreated): ?>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" integrity="sha512-CNgIRecGo7nphbeZ04Sc13ka07paqdeTu0WR1IM4kNcpmBAUSHSe2keRB6Q5pBUtIxCY7bQMsVB0ANBpd6JDg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <?php endif; ?>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -431,6 +434,21 @@ $autoSelectSite = (count($sites) === 1) ? $sites[0]['id'] : 0;
             width: 20px;
             height: 20px;
         }
+        .qr-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 20px 0 0;
+        }
+        .qr-wrapper canvas, .qr-wrapper img {
+            border: 6px solid white;
+            border-radius: 8px;
+        }
+        .qr-label {
+            font-size: 12px;
+            opacity: 0.8;
+            margin-top: 8px;
+        }
 
         /* Print Styles */
         @media print {
@@ -491,6 +509,10 @@ $autoSelectSite = (count($sites) === 1) ? $sites[0]['id'] : 0;
                     <div class="voucher-code"><?= htmlspecialchars($voucherCode) ?></div>
                     <div class="voucher-info">
                         Der Code ist 8 Stunden ab Erstellung gültig
+                    </div>
+                    <div class="qr-wrapper no-print">
+                        <div id="qrcode"></div>
+                        <div class="qr-label">QR-Code scannen zum Verbinden</div>
                     </div>
                 </div>
 
@@ -603,6 +625,19 @@ $autoSelectSite = (count($sites) === 1) ? $sites[0]['id'] : 0;
     </div>
 
     <script>
+        <?php if ($voucherCreated): ?>
+        document.addEventListener('DOMContentLoaded', function() {
+            new QRCode(document.getElementById('qrcode'), {
+                text: '<?= addslashes($voucherCode) ?>',
+                width: 160,
+                height: 160,
+                colorDark: '#ffffff',
+                colorLight: 'transparent',
+                correctLevel: QRCode.CorrectLevel.M
+            });
+        });
+        <?php endif; ?>
+
         function toggleEmailField() {
             const checkbox = document.getElementById('send_email');
             const emailField = document.getElementById('email_field');

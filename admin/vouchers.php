@@ -13,6 +13,41 @@ $auth->requireAdmin();
 $db = Database::getInstance();
 $appTitle = $db->getSetting('app_title', 'UniFi Voucher System');
 
+// CSV-Export
+if (isset($_GET['export_csv']) && isset($_GET['site_id'])) {
+    if (!$auth->validateCsrfToken($_GET['token'] ?? '')) {
+        http_response_code(403);
+        exit('Ungültiges Token');
+    }
+    $siteId = (int)$_GET['site_id'];
+    $site = $db->fetchOne("SELECT * FROM sites WHERE id = ? AND is_active = 1", [$siteId]);
+    if (!$site) { http_response_code(404); exit('Site nicht gefunden'); }
+
+    $rows = $db->fetchAll(
+        "SELECT voucher_code, voucher_name, max_uses, expire_minutes, status, used_count, created_at, expires_at
+         FROM vouchers WHERE site_id = ? ORDER BY created_at DESC",
+        [$siteId]
+    );
+
+    $filename = 'vouchers_' . preg_replace('/[^a-z0-9]/i', '_', $site['name']) . '_' . date('Ymd_His') . '.csv';
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Cache-Control: no-cache');
+
+    $out = fopen('php://output', 'w');
+    fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF)); // UTF-8 BOM für Excel
+    fputcsv($out, ['Code', 'Name', 'Max. Geräte', 'Gültigkeit (Min)', 'Status', 'Genutzt', 'Erstellt', 'Läuft ab'], ';');
+    foreach ($rows as $r) {
+        fputcsv($out, [
+            $r['voucher_code'], $r['voucher_name'], $r['max_uses'],
+            $r['expire_minutes'], $r['status'], $r['used_count'],
+            $r['created_at'], $r['expires_at'] ?? ''
+        ], ';');
+    }
+    fclose($out);
+    exit;
+}
+
 // AJAX: Voucher abrufen (immer aus DB, optional vorher Live-Sync)
 if (isset($_GET['ajax_get_vouchers']) && isset($_GET['site_id'])) {
     header('Content-Type: application/json');
@@ -672,6 +707,9 @@ $faviconUrl = $db->getSetting('favicon_url', '');
         <div class="card">
             <div class="card-header">
                 <h2 class="card-title" id="voucherListTitle">Vouchers</h2>
+                <a id="csvExportBtn" style="display:none;" class="btn btn-secondary btn-small" href="#">
+                    <i class="fas fa-download"></i> CSV exportieren
+                </a>
             </div>
             <div class="card-body" style="padding: 0;">
                 <div id="voucherContent">
@@ -694,6 +732,8 @@ $faviconUrl = $db->getSetting('favicon_url', '');
         let currentSiteId = null;
         let allVouchers = [];
         let currentFilter = 'all';
+        let currentPage = 1;
+        const PAGE_SIZE = 50;
 
         // Toast Notification anzeigen
         function showToast(type, title, message) {
@@ -761,10 +801,16 @@ $faviconUrl = $db->getSetting('favicon_url', '');
 
                 if (result.success) {
                     allVouchers = result.vouchers;
+                    currentPage = 1;
                     document.getElementById('voucherListTitle').textContent = `Vouchers - ${result.site_name} (${result.count})`;
                     updateStats();
                     renderVouchers();
                     document.getElementById('statsContainer').style.display = 'block';
+
+                    // CSV-Button aktualisieren
+                    const csvBtn = document.getElementById('csvExportBtn');
+                    csvBtn.style.display = 'inline-flex';
+                    csvBtn.href = `vouchers.php?export_csv=1&site_id=${siteId}&token=${csrfToken}`;
 
                     // Sync-Info anzeigen
                     if (result.last_sync) {
@@ -810,10 +856,17 @@ $faviconUrl = $db->getSetting('favicon_url', '');
         // Filter setzen
         function setFilter(filter) {
             currentFilter = filter;
+            currentPage = 1;
             document.querySelectorAll('.filter-btn').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.filter === filter);
             });
             renderVouchers();
+        }
+
+        function setPage(page) {
+            currentPage = page;
+            renderVouchers();
+            document.querySelector('.card:last-of-type')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
         // Vouchers rendern
@@ -823,6 +876,11 @@ $faviconUrl = $db->getSetting('favicon_url', '');
             if (currentFilter !== 'all') {
                 vouchers = allVouchers.filter(v => v.status === currentFilter);
             }
+
+            const totalPages = Math.ceil(vouchers.length / PAGE_SIZE);
+            if (currentPage > totalPages && totalPages > 0) currentPage = totalPages;
+            const pageStart = (currentPage - 1) * PAGE_SIZE;
+            const pageVouchers = vouchers.slice(pageStart, pageStart + PAGE_SIZE);
 
             if (vouchers.length === 0) {
                 document.getElementById('voucherContent').innerHTML = `
@@ -867,7 +925,7 @@ $faviconUrl = $db->getSetting('favicon_url', '');
                         <tbody>
             `;
 
-            vouchers.forEach(voucher => {
+            pageVouchers.forEach(voucher => {
                 const createDate = new Date(voucher.create_time * 1000);
                 const expireDate = new Date(voucher.expire_time * 1000);
                 const now = new Date();
@@ -938,11 +996,20 @@ $faviconUrl = $db->getSetting('favicon_url', '');
                 `;
             });
 
-            html += `
-                        </tbody>
-                    </table>
-                </div>
-            `;
+            html += `</tbody></table></div>`;
+
+            // Paginierung
+            if (totalPages > 1) {
+                html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:15px 25px;border-top:1px solid #e0e0e0;">`;
+                html += `<span style="font-size:13px;color:#666;">Seite ${currentPage} von ${totalPages} (${vouchers.length} Einträge)</span>`;
+                html += `<div style="display:flex;gap:6px;">`;
+                html += `<button class="btn btn-secondary btn-small" onclick="setPage(${currentPage - 1})" ${currentPage <= 1 ? 'disabled' : ''}><i class="fas fa-chevron-left"></i></button>`;
+                for (let p = Math.max(1, currentPage - 2); p <= Math.min(totalPages, currentPage + 2); p++) {
+                    html += `<button class="btn btn-small ${p === currentPage ? 'btn-primary' : 'btn-secondary'}" onclick="setPage(${p})">${p}</button>`;
+                }
+                html += `<button class="btn btn-secondary btn-small" onclick="setPage(${currentPage + 1})" ${currentPage >= totalPages ? 'disabled' : ''}><i class="fas fa-chevron-right"></i></button>`;
+                html += `</div></div>`;
+            }
 
             document.getElementById('voucherContent').innerHTML = html;
         }

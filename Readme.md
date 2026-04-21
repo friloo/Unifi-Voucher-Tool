@@ -1,372 +1,140 @@
 # UniFi Voucher Management System
 
-Ein professionelles, webbasiertes System zur Verwaltung von WLAN-Vouchers für UniFi Controller mit Multi-Site-Unterstützung, Benutzerverwaltung und Microsoft 365 Integration.
+Webbasiertes System zur Verwaltung von WLAN-Vouchers für UniFi OS mit Multi-Site-Unterstützung, Benutzerverwaltung und Microsoft 365 Integration.
 
-## ✨ Features
+## Features
 
-### Kern-Funktionen
-- 🎫 **Voucher-Erstellung**: Einfache Erstellung von zeitbegrenzten WLAN-Zugangscodes
-- 🏢 **Multi-Site-Support**: Verwaltung mehrerer UniFi Sites/Standorte
-- 👥 **Benutzerverwaltung**: Granulare Zugriffskontrolle auf Site-Ebene
-- 🔐 **Authentifizierung**: Lokale Accounts und Microsoft 365 OAuth
-- 📊 **Admin-Dashboard**: Übersichtliche Statistiken und Historie
-- 🌐 **Öffentlicher Zugriff**: Optional ohne Login nutzbar
-- 🎨 **Modernes Design**: Responsives, helles und professionelles UI
+- **Voucher-Erstellung** mit QR-Code-Anzeige und E-Mail-Versand
+- **Multi-Site-Support** – mehrere UniFi-Standorte verwalten
+- **Benutzerverwaltung** mit granularer Site-Zugriffskontrolle
+- **Authentifizierung** via lokale Accounts oder Microsoft 365 OAuth
+- **CSV-Export** aller Vouchers pro Site
+- **Admin-Dashboard** mit Live-Statistiken und Sync-Funktion
+- **Öffentlicher Zugriff** – optional ohne Login nutzbar
+- CSRF-Schutz, bcrypt-Passwörter, Prepared Statements, Login-Rate-Limiting
 
-### Sicherheit
-- CSRF-Schutz für alle Formulare
-- Password-Hashing mit bcrypt
-- Session-Management mit konfigurierbaren Timeouts
-- SQL-Injection-Schutz durch Prepared Statements
-- Rollenbasierte Zugriffskontrolle (Admin/User)
+## Anforderungen
 
-## 📋 Anforderungen
+- PHP 7.4+, MySQL 5.7+ / MariaDB 10.2+, Apache/Nginx
+- PHP-Extensions: PDO, PDO_MySQL, cURL, mbstring, JSON
+- **UniFi Network Application 7.0+ mit UniFi OS** (z.B. UDM, UDR, UniFi OS Server)
 
-### Server-Anforderungen
-- PHP 7.4 oder höher
-- MySQL 5.7+ oder MariaDB 10.2+
-- Apache/Nginx Webserver
-- PHP-Extensions:
-  - PDO
-  - PDO_MySQL
-  - cURL
-  - mbstring
-  - JSON
+## Installation
 
-### UniFi Controller
-- UniFi Network Application 7.0+ mit UniFi OS (z.B. UDM, UDR, UniFi OS Server)
-- API-Zugriff aktiviert
-- Lokaler Admin-Account oder dedizierter API-User
-
-## 🚀 Installation
-
-### Schritt 1: Dateien hochladen
 ```bash
-# Repository klonen oder ZIP herunterladen
 git clone https://github.com/friloo/unifi-voucher-tool.git
 cd unifi-voucher-tool
-
-# Dateien auf den Webserver hochladen
-# Stellen Sie sicher, dass der Webserver-User Schreibrechte hat
 ```
 
-### Schritt 2: Ordnerstruktur
+1. Dateien auf den Webserver hochladen
+2. `http://ihre-domain.de/install.php` öffnen
+3. Den 5-Schritte-Assistenten durchlaufen:
+   - **Schritt 1:** Datenbank-Verbindungsdaten
+   - **Schritt 2:** Administrator-Account (Name, E-Mail, Passwort)
+   - **Schritt 3:** Allgemeine Einstellungen (Titel, Logo, öffentlicher Zugriff)
+   - **Schritt 4:** Microsoft 365 Integration (optional)
+   - **Schritt 5:** Installation abschließen
+4. `install.php` nach erfolgreicher Installation löschen
 
-```
-/
-├── config.php (wird vom Installer erstellt)
-├── install.php
-├── index.php
-├── login.php
-├── logout.php
-├── database.sql
-├── .htaccess (wird vom Installer erstellt)
-├── includes/
-│   ├── Database.php
-│   ├── Auth.php
-│   └── UniFiController.php
-└── admin/
-    ├── index.php
-    ├── sites.php
-    ├── users.php
-    ├── vouchers.php
-    └── settings.php
-```
+## Sites konfigurieren
 
-### Schritt 3: Installation durchführen
+1. **Administration → Sites verwalten → Neue Site hinzufügen**
+2. Felder ausfüllen:
+   - **Name:** Anzeigename (z.B. „Hauptgebäude")
+   - **Site ID:** UniFi Site ID (meist `default`)
+   - **Controller URL:** `https://unifi.example.com:11443`
+   - **Benutzername / Passwort:** UniFi Admin-Zugangsdaten
+3. **Verbindung testen** klicken, dann speichern
 
-1. Öffnen Sie `http://ihre-domain.de/install.php` im Browser
-2. Folgen Sie dem 5-Schritte-Installations-Assistenten:
+## Voucher erstellen
 
-#### Schritt 1: Datenbank-Konfiguration
-- Datenbank-Host (meist `localhost`)
-- Datenbankname (z.B. `unifi_voucher`)
-- Datenbank-Benutzer
-- Datenbank-Passwort
+1. Startseite öffnen (Login je nach Konfiguration optional)
+2. Voucher-Name, Anzahl Geräte und Standort wählen
+3. **Voucher erstellen** – Code und QR-Code werden sofort angezeigt
+4. Code per E-Mail senden oder ausdrucken
 
-#### Schritt 2: Administrator-Account
-- Name
-- E-Mail-Adresse
-- Passwort (min. 8 Zeichen)
-
-#### Schritt 3: Allgemeine Einstellungen
-- Anwendungs-Titel
-- Logo-URL (optional)
-- Anleitung für Benutzer
-- Öffentlicher Zugriff aktivieren (optional)
-
-#### Schritt 4: Microsoft 365 Integration (optional)
-- Client ID
-- Client Secret  
-- Tenant ID
-
-#### Schritt 5: Installation abschließen
-
-Nach erfolgreicher Installation wird automatisch:
-- Die Datenbank erstellt und initialisiert
-- Die `config.php` Datei generiert
-- Die `.htaccess` für URL-Rewriting erstellt
-- Der Admin-Account angelegt
-
-### Schritt 4: Installation sichern
-
-Nach erfolgreicher Installation:
-```bash
-# install.php umbenennen oder löschen
-mv install.php install.php.bak
-
-# Oder komplett entfernen
-rm install.php
-```
-
-## 🎯 Erste Schritte
-
-### 1. Als Administrator anmelden
-- Öffnen Sie `http://ihre-domain.de/login.php`
-- Melden Sie sich mit Ihren Admin-Zugangsdaten an
-
-### 2. Sites konfigurieren
-1. Navigieren Sie zu **Administration** → **Sites verwalten**
-2. Klicken Sie auf **Neue Site hinzufügen**
-3. Geben Sie folgende Daten ein:
-   - **Name**: Anzeigename (z.B. "Hauptgebäude")
-   - **Site ID**: UniFi Site ID (z.B. "default")
-   - **Controller URL**: URL Ihres UniFi Controllers (z.B. "https://unifi.example.com:11443")
-   - **Benutzername**: UniFi Admin-Username
-   - **Passwort**: UniFi Admin-Passwort
-   - **Öffentlicher Zugriff**: Aktivieren für Login-freie Nutzung
-
-4. Klicken Sie auf **Verbindung testen**, um die Einstellungen zu überprüfen
-5. Speichern Sie die Site
-
-### 3. Benutzer anlegen
-1. Navigieren Sie zu **Administration** → **Benutzer verwalten**
-2. Klicken Sie auf **Neuer Benutzer**
-3. Geben Sie die Benutzerdaten ein:
-   - Name
-   - E-Mail
-   - Passwort
-   - Admin-Rechte (optional)
-4. Wählen Sie die Sites aus, auf die der Benutzer Zugriff haben soll
-5. Speichern Sie den Benutzer
-
-### 4. Vouchers erstellen
-1. Gehen Sie zur Startseite
-2. Wählen Sie eine Site aus
-3. Geben Sie einen Voucher-Namen ein
-4. Legen Sie die Anzahl der Geräte fest (1-10)
-5. Klicken Sie auf **Voucher erstellen**
-6. Der Code wird sofort angezeigt und ist 8 Stunden gültig
-
-## 🔧 Konfiguration
+## Konfiguration
 
 ### config.php
-Die Datei wird automatisch erstellt, kann aber manuell angepasst werden:
-
+Wird automatisch durch den Installer erstellt:
 ```php
 <?php
 define('DB_HOST', 'localhost');
 define('DB_NAME', 'unifi_voucher');
 define('DB_USER', 'username');
 define('DB_PASS', 'password');
-
-define('SESSION_LIFETIME', 3600); // 1 Stunde
-
+define('SESSION_LIFETIME', 3600);
 date_default_timezone_set('Europe/Berlin');
 ```
 
-### Microsoft 365 OAuth einrichten
+### Microsoft 365 OAuth (optional)
+1. Im [Azure Portal](https://portal.azure.com) eine App-Registrierung anlegen
+2. Umleitungs-URI: `https://ihre-domain.de/m365_callback.php`
+3. API-Berechtigungen: `User.Read`, `email`, `profile`, `openid`
+4. Client ID, Client Secret und Tenant ID in **Administration → Einstellungen** eintragen
 
-1. **Azure AD App registrieren**:
-   - Gehen Sie zu https://portal.azure.com
-   - Navigieren Sie zu "Azure Active Directory" → "App-Registrierungen"
-   - Klicken Sie auf "Neue Registrierung"
-   - Name: "UniFi Voucher System"
-   - Unterstützte Kontotypen: "Nur Konten in diesem Organisationsverzeichnis"
-   - Umleitungs-URI: `https://ihre-domain.de/login.php`
+### Cron-Job (empfohlen)
+Automatische Synchronisation alle 30 Minuten:
+```bash
+*/30 * * * * curl -s "https://ihre-domain.de/cron_sync.php?token=IHR_CRON_TOKEN"
+```
+Den Token finden Sie unter **Administration → Einstellungen → Cron**.
 
-2. **API-Berechtigungen**:
-   - Microsoft Graph → Delegierte Berechtigungen
-   - `User.Read`
-   - `email`
-   - `profile`
-   - `openid`
+## Sicherheit
 
-3. **Client Secret erstellen**:
-   - Gehen Sie zu "Zertifikate & Geheimnisse"
-   - Erstellen Sie ein neues Client-Geheimnis
-   - Notieren Sie den Wert (nur einmal sichtbar!)
-
-4. **In System eintragen**:
-   - Administration → Einstellungen
-   - Microsoft 365 Bereich ausfüllen
-   - Client ID, Client Secret und Tenant ID eintragen
-
-## 🔐 Sicherheitsempfehlungen
-
-### Server-Konfiguration
 ```apache
-# .htaccess zusätzliche Sicherheit
-<Files "config.php">
-    Order Allow,Deny
-    Deny from all
-</Files>
-
-<FilesMatch "\.(sql|md)$">
+# .htaccess – sensible Dateien sperren
+<FilesMatch "^(config\.php|database\.sql|.*\.md)$">
     Order Allow,Deny
     Deny from all
 </FilesMatch>
 ```
 
-### Datenbank-Benutzer
-Erstellen Sie einen dedizierten Datenbankbenutzer nur für diese Anwendung:
-
 ```sql
+-- Dedizierter Datenbank-Benutzer
 CREATE USER 'unifi_voucher'@'localhost' IDENTIFIED BY 'sicheres_passwort';
 GRANT SELECT, INSERT, UPDATE, DELETE ON unifi_voucher.* TO 'unifi_voucher'@'localhost';
-FLUSH PRIVILEGES;
 ```
 
-### HTTPS erzwingen
-```apache
-# In .htaccess hinzufügen
-RewriteEngine On
-RewriteCond %{HTTPS} off
-RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
-```
-
-### Regelmäßige Updates
-- PHP und MySQL aktuell halten
-- Sicherheitspatches zeitnah einspielen
-- Passwörter regelmäßig ändern
-
-## 📚 Verwendung
-
-### Für Endbenutzer
-
-**Voucher erstellen:**
-1. Startseite öffnen (Login optional je nach Konfiguration)
-2. Voucher-Name eingeben
-3. Anzahl Geräte wählen
-4. Standort auswählen
-5. Code erstellen und notieren
-
-**Code verwenden:**
-1. Mit dem WLAN verbinden
-2. Browser öffnet automatisch Anmeldeseite
-3. Voucher-Code eingeben
-4. Zugang für 8 Stunden
-
-### Für Administratoren
-
-**Sites verwalten:**
-- Neue Standorte hinzufügen
-- Verbindungen testen
-- Sites deaktivieren
-- Zugangsdaten aktualisieren
-
-**Benutzer verwalten:**
-- Neue Benutzer anlegen
-- Berechtigungen zuweisen
-- Sites-Zugriff konfigurieren
-- Admin-Rechte vergeben
-
-**Historie einsehen:**
-- Alle erstellten Vouchers
-- Filterfunktionen nach Site/Benutzer/Datum
-- Export-Funktion (optional)
-
-## 🐛 Problembehandlung
-
-### Häufige Probleme
+## Problembehandlung
 
 **Login funktioniert nicht:**
-- Prüfen Sie die Datenbankverbindung
-- Stellen Sie sicher, dass Sessions funktionieren
-- Überprüfen Sie die PHP-Session-Konfiguration
+- Datenbankverbindung und PHP-Session-Konfiguration prüfen
 
 **UniFi-Verbindung schlägt fehl:**
-- Testen Sie die Controller-URL im Browser
-- Prüfen Sie Benutzername und Passwort
-- Stellen Sie sicher, dass cURL aktiviert ist
-- Prüfen Sie SSL-Zertifikate (CURLOPT_SSL_VERIFYPEER)
+- Controller-URL im Browser testen
+- Port 11443 für UniFi OS verwenden (nicht 8443)
+- Benutzername, Passwort und Site ID prüfen
+- cURL-Extension muss aktiviert sein
 
-**UniFi OS: Verbindung schlägt fehl (HTTP 404 oder 401):**
-- Stellen Sie sicher, dass Sie Port 11443 verwenden (nicht 8443)
-- UniFi OS erfordert den Pfad `/proxy/network/api/s/{site}/...` für alle API-Aufrufe
-- Der Login-Endpunkt lautet `/api/auth/login` (nicht `/api/login`)
-- Ältere UniFi Network Controller ohne UniFi OS werden ab Version 2.1.0 nicht mehr unterstützt
-- Bei anhaltenden 401-Fehlern: Prüfen Sie, ob der UniFi-Account lokale API-Rechte besitzt
+**UniFi OS: HTTP 404 oder 401:**
+- Login-Endpunkt ist `/api/auth/login` (nicht `/api/login`)
+- API-Pfade benötigen Präfix `/proxy/network/api/s/{site}/...`
+- Älterer UniFi Network Controller (ohne UniFi OS) wird ab Version 2.1.0 nicht mehr unterstützt
 
 **Voucher werden nicht erstellt:**
-- Überprüfen Sie die UniFi Controller Logs
-- Prüfen Sie API-Berechtigungen
-- Stellen Sie sicher, dass die Site-ID korrekt ist
+- UniFi Controller Logs prüfen
+- API-Berechtigungen des Admin-Accounts prüfen
+- Site ID korrekt? (zu finden in der UniFi Controller URL)
 
 **Microsoft 365 Login funktioniert nicht:**
-- Prüfen Sie die Redirect URI
-- Überprüfen Sie Client ID und Secret
-- Stellen Sie sicher, dass API-Berechtigungen erteilt wurden
+- Redirect URI in Azure AD prüfen
+- Client ID, Secret und Tenant ID kontrollieren
 
-### Debugging aktivieren
+## API-Dokumentation
 
-In `config.php` hinzufügen:
-```php
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
-ini_set('log_errors', 1);
-ini_set('error_log', '/pfad/zu/error.log');
-```
-
-## 🔄 Update/Migration
-
-### Von der alten Version migrieren
-Das System ist eine komplette Neuentwicklung. Migration erfordert:
-
-1. **Daten-Export** aus dem alten System (falls vorhanden)
-2. **Neue Installation** gemäß dieser Anleitung durchführen
-3. **Sites manuell neu anlegen**
-4. **Benutzer neu erstellen**
-
-### Updates einspielen
-```bash
-# Backup erstellen
-mysqldump -u username -p database_name > backup.sql
-cp -r /var/www/html/voucher /backup/voucher-$(date +%Y%m%d)
-
-# Neue Dateien hochladen (config.php nicht überschreiben!)
-# Datenbank-Updates ausführen falls vorhanden
-```
-
-## 📝 API-Dokumentation
-
-### UniFi OS API Endpoints
-
-> **Hinweis:** Ab Version 2.1.0 verwendet dieses Tool die UniFi OS API (Port 11443).
-> Ältere Installationen mit dem klassischen UniFi Network Controller (Port 8443) müssen
-> auf UniFi OS migrieren oder weiterhin Version 2.0.x verwenden.
-
-**Login:**
+**Login (UniFi OS):**
 ```
 POST /api/auth/login
 Body: {"username": "admin", "password": "password"}
 Response-Header: X-CSRF-Token: <token>
 ```
 
-> Der `X-CSRF-Token`-Wert aus dem Login-Response-Header wird automatisch extrahiert und
-> bei allen nachfolgenden POST-Anfragen als `X-CSRF-Token`-Header mitgesendet.
-
 **Voucher erstellen:**
 ```
 POST /proxy/network/api/s/{site_id}/cmd/hotspot
-Headers: X-CSRF-Token: <token>
-Body: {
-  "cmd": "create-voucher",
-  "expire": 480,
-  "n": 1,
-  "note": "Voucher Name",
-  "quota": 1
-}
+X-CSRF-Token: <token>
+Body: {"cmd": "create-voucher", "expire": 480, "n": 1, "note": "Name", "quota": 1}
 ```
 
 **Vouchers abrufen:**
@@ -377,53 +145,18 @@ GET /proxy/network/api/s/{site_id}/stat/voucher
 **Voucher löschen:**
 ```
 POST /proxy/network/api/s/{site_id}/cmd/hotspot
-Headers: X-CSRF-Token: <token>
+X-CSRF-Token: <token>
 Body: {"cmd": "delete-voucher", "_id": "<voucher_id>"}
 ```
 
-## 🤝 Mitwirken
+## Roadmap
 
-Contributions sind willkommen! Bitte:
-
-1. Forken Sie das Repository
-2. Erstellen Sie einen Feature-Branch (`git checkout -b feature/AmazingFeature`)
-3. Committen Sie Ihre Änderungen (`git commit -m 'Add some AmazingFeature'`)
-4. Pushen Sie den Branch (`git push origin feature/AmazingFeature`)
-5. Öffnen Sie einen Pull Request
-
-## 📄 Lizenz
-
-Dieses Projekt steht unter der MIT-Lizenz. Siehe `LICENSE` Datei für Details.
-
-## 👨‍💻 Autor
-
-**Friederich Loheide**
-
-## 🙏 Danksagungen
-
-- UniFi Controller API Dokumentation
-- Microsoft Graph API
-- Bootstrap und FontAwesome Icons
-
-## 📞 Support
-
-Bei Fragen oder Problemen:
-- Erstellen Sie ein Issue auf GitHub
-- E-Mail an support@example.com
-
-## 🗺️ Roadmap
-
-Geplante Features:
-- [ ] Voucher-Templates
+- [ ] Voucher-Templates (vordefinierte Laufzeiten)
 - [ ] Bulk-Voucher-Erstellung
-- [ ] QR-Code-Generierung
-- [ ] SMS-Versand von Codes
 - [ ] Erweiterte Reporting-Funktionen
-- [ ] REST API für externe Integration
 - [ ] Docker-Container
 - [ ] Mehrsprachigkeit
 
 ---
 
-**Version:** 2.1.0  
-**Letztes Update:** April 2026
+**Version:** 2.1.0 | **Autor:** Friederich Loheide | **Letztes Update:** April 2026

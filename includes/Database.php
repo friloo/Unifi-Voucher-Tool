@@ -2,6 +2,7 @@
 class Database {
     private static $instance = null;
     private $pdo;
+    private $settingsCache = [];
     
     private function __construct() {
         try {
@@ -58,15 +59,21 @@ class Database {
     
     // Settings-Helper
     public function getSetting($key, $default = null) {
+        if (array_key_exists($key, $this->settingsCache)) {
+            return $this->settingsCache[$key] ?? $default;
+        }
         $result = $this->fetchOne("SELECT setting_value FROM settings WHERE setting_key = ?", [$key]);
-        return $result ? $result['setting_value'] : $default;
+        $value = $result ? $result['setting_value'] : null;
+        $this->settingsCache[$key] = $value;
+        return $value ?? $default;
     }
-    
+
     public function setSetting($key, $value) {
         $this->query(
-            "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) 
+            "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)
              ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)",
             [$key, $value]
         );
+        $this->settingsCache[$key] = $value;
     }
 }

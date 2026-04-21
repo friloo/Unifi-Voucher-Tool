@@ -31,12 +31,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (empty($email) || empty($password)) {
             $error = 'Bitte E-Mail und Passwort eingeben';
-        } elseif ($auth->login($email, $password)) {
-            // Nach erfolgreichem Login zu index.php
-            header('Location: index.php');
-            exit;
         } else {
-            $error = 'Ungültige E-Mail oder Passwort';
+            $result = $auth->login($email, $password);
+            if ($result === true) {
+                header('Location: index.php');
+                exit;
+            } elseif ($result === 'rate_limited') {
+                $error = 'Zu viele Fehlversuche. Bitte warten Sie 10 Minuten.';
+            } else {
+                $error = 'Ungültige E-Mail oder Passwort';
+            }
         }
     } catch (Exception $e) {
         $error = 'Login-Fehler: ' . $e->getMessage();

@@ -88,3 +88,31 @@ CREATE TABLE IF NOT EXISTS `sessions` (
   FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
   INDEX `idx_expires` (`expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `login_attempts` (
+  `id` INT PRIMARY KEY AUTO_INCREMENT,
+  `ip_address` VARCHAR(45) NOT NULL,
+  `email` VARCHAR(255) NOT NULL,
+  `attempted_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_ip` (`ip_address`),
+  INDEX `idx_email` (`email`),
+  INDEX `idx_attempted` (`attempted_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `audit_log` (
+  `id` INT PRIMARY KEY AUTO_INCREMENT,
+  `user_id` INT,
+  `action` VARCHAR(100) NOT NULL,
+  `entity_type` VARCHAR(50),
+  `entity_id` VARCHAR(100),
+  `details` TEXT,
+  `ip_address` VARCHAR(45),
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL,
+  INDEX `idx_user` (`user_id`),
+  INDEX `idx_action` (`action`),
+  INDEX `idx_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Migration für bestehende Installationen:
+-- Neue Tabellen werden automatisch erstellt (CREATE TABLE IF NOT EXISTS)

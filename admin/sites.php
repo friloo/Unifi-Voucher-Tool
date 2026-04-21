@@ -654,6 +654,22 @@ $currentUser = $auth->getCurrentUser();
             document.getElementById('editSiteModal').classList.add('active');
         }
         
+        // Loading-State bei Formular-Absenden (verhindert Freeze-Eindruck)
+        document.getElementById('addSiteForm').addEventListener('submit', function() {
+            const btn = this.querySelector('button[name="add_site"]');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Verbindung wird getestet...';
+            }
+        });
+        document.getElementById('editSiteForm').addEventListener('submit', function() {
+            const btn = this.querySelector('button[name="edit_site"]');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Verbindung wird getestet...';
+            }
+        });
+
         // Modal schließen bei Klick außerhalb
         document.getElementById('addSiteModal').addEventListener('click', function(e) {
             if (e.target === this) {

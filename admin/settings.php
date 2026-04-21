@@ -5,12 +5,34 @@ ini_set('display_errors', 1);
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../includes/Database.php';
 require_once __DIR__ . '/../includes/Auth.php';
+require_once __DIR__ . '/../includes/Mailer.php';
 
 $auth = new Auth();
 $auth->requireAdmin();
 
 $db = Database::getInstance();
 $appTitle = $db->getSetting('app_title', 'UniFi Voucher System');
+
+// AJAX: SMTP-Test-E-Mail senden
+if (isset($_POST['ajax_smtp_test'])) {
+    header('Content-Type: application/json');
+    if (!$auth->validateCsrfToken($_POST['csrf_token'] ?? '')) {
+        echo json_encode(['success' => false, 'message' => 'Ungültiges Token']);
+        exit;
+    }
+    $to = trim($_POST['test_email'] ?? '');
+    if (!filter_var($to, FILTER_VALIDATE_EMAIL)) {
+        echo json_encode(['success' => false, 'message' => 'Ungültige E-Mail-Adresse']);
+        exit;
+    }
+    $mailer = new Mailer();
+    $ok = $mailer->sendTestEmail($to);
+    echo json_encode([
+        'success' => $ok,
+        'message' => $ok ? "Test-E-Mail wurde an {$to} gesendet." : 'Versand fehlgeschlagen. Prüfen Sie die SMTP-Einstellungen und den PHP-Fehlerlog.'
+    ]);
+    exit;
+}
 
 $error = '';
 $success = '';
@@ -542,6 +564,20 @@ $faviconUrl = $db->getSetting('favicon_url', '');
                     </div>
                     <button type="submit" name="save_settings" class="btn btn-primary"><i class="fas fa-save"></i> Speichern</button>
                 </form>
+
+                <div style="margin-top: 25px; padding-top: 25px; border-top: 1px solid #e0e0e0;">
+                    <h3 style="margin-bottom: 15px;">SMTP testen</h3>
+                    <div style="display: flex; gap: 10px; align-items: flex-end;">
+                        <div style="flex: 1;">
+                            <label for="smtpTestEmail">Test-E-Mail senden an</label>
+                            <input type="email" id="smtpTestEmail" placeholder="empfaenger@example.com" style="margin-top: 6px;">
+                        </div>
+                        <button onclick="testSmtp()" class="btn btn-secondary" id="smtpTestBtn">
+                            <i class="fas fa-paper-plane"></i> Testen
+                        </button>
+                    </div>
+                    <span id="smtpTestResult" style="display: block; margin-top: 10px; font-size: 13px;"></span>
+                </div>
             </div>
 
 <!-- TEIL 1 ENDET HIER - Fortsetzung in TEIL 2 -->
@@ -747,6 +783,32 @@ $faviconUrl = $db->getSetting('favicon_url', '');
                 document.body.removeChild(textarea);
                 alert('In die Zwischenablage kopiert!');
             });
+        }
+
+        // SMTP testen
+        async function testSmtp() {
+            const email = document.getElementById('smtpTestEmail').value.trim();
+            const btn = document.getElementById('smtpTestBtn');
+            const result = document.getElementById('smtpTestResult');
+            if (!email) { result.textContent = 'Bitte eine E-Mail-Adresse eingeben.'; result.style.color = '#c33'; return; }
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sende...';
+            result.textContent = '';
+            const fd = new FormData();
+            fd.append('ajax_smtp_test', '1');
+            fd.append('csrf_token', '<?= $auth->getCsrfToken() ?>');
+            fd.append('test_email', email);
+            try {
+                const res = await fetch('settings.php', { method: 'POST', body: fd });
+                const data = await res.json();
+                result.textContent = data.message;
+                result.style.color = data.success ? '#3c3' : '#c33';
+            } catch(e) {
+                result.textContent = 'Fehler beim Senden.';
+                result.style.color = '#c33';
+            }
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-paper-plane"></i> Testen';
         }
 
         // Cron-Job testen

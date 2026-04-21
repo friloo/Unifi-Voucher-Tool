@@ -23,18 +23,61 @@ class Auth {
     
     // Benutzer einloggen
     public function login($email, $password) {
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+
+        if ($this->isRateLimited($ip, $email)) {
+            return 'rate_limited';
+        }
+
         $user = $this->db->fetchOne(
             "SELECT * FROM users WHERE email = ? AND is_active = 1",
             [$email]
         );
-        
+
         if ($user && password_verify($password, $user['password_hash'])) {
+            $this->clearLoginAttempts($ip, $email);
             $this->setUserSession($user);
             $this->updateLastLogin($user['id']);
             return true;
         }
-        
+
+        $this->recordLoginAttempt($ip, $email);
         return false;
+    }
+
+    private function isRateLimited($ip, $email) {
+        try {
+            $count = $this->db->fetchOne(
+                "SELECT COUNT(*) as cnt FROM login_attempts
+                 WHERE (ip_address = ? OR email = ?) AND attempted_at > DATE_SUB(NOW(), INTERVAL 10 MINUTE)",
+                [$ip, $email]
+            );
+            return $count && (int)$count['cnt'] >= 10;
+        } catch (\Exception $e) {
+            return false;
+        }
+    }
+
+    private function recordLoginAttempt($ip, $email) {
+        try {
+            $this->db->query(
+                "INSERT INTO login_attempts (ip_address, email) VALUES (?, ?)",
+                [$ip, $email]
+            );
+        } catch (\Exception $e) {
+            // Tabelle existiert noch nicht – ignorieren
+        }
+    }
+
+    private function clearLoginAttempts($ip, $email) {
+        try {
+            $this->db->query(
+                "DELETE FROM login_attempts WHERE ip_address = ? OR email = ?",
+                [$ip, $email]
+            );
+        } catch (\Exception $e) {
+            // ignore
+        }
     }
     
     // Microsoft 365 Login

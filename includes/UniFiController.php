@@ -36,6 +36,8 @@ class UniFiController {
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_COOKIEJAR => $this->cookieFile,
             CURLOPT_COOKIEFILE => $this->cookieFile,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_CONNECTTIMEOUT => 5,
             CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
             CURLOPT_HEADERFUNCTION => function($ch, $header) {
                 $parts = explode(':', $header, 2);
@@ -59,11 +61,15 @@ class UniFiController {
         }
         
         $data = json_decode($response, true);
-        
-        if (!isset($data['meta']['rc']) || $data['meta']['rc'] !== 'ok') {
-            throw new Exception("Login fehlgeschlagen: Ungültige Antwort");
+
+        // UniFi OS gibt ein User-Objekt zurück (unique_id/email), die alte API meta.rc = ok
+        $isUnifiOs = is_array($data) && (isset($data['unique_id']) || isset($data['email']));
+        $isOldApi  = isset($data['meta']['rc']) && $data['meta']['rc'] === 'ok';
+
+        if (!$isUnifiOs && !$isOldApi) {
+            throw new Exception("Login fehlgeschlagen: Ungültige Antwort vom Controller");
         }
-        
+
         return true;
     }
     
@@ -79,6 +85,8 @@ class UniFiController {
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_COOKIEFILE => $this->cookieFile,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_CONNECTTIMEOUT => 5,
             CURLOPT_HTTPHEADER => array_filter([
                 'Content-Type: application/json',
                 ($method === 'POST' && $this->csrfToken !== null)

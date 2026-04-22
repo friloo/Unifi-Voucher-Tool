@@ -7,6 +7,7 @@ class UniFiController {
     private $cookieFile;
     private $csrfToken = null;
     private $sessionCookie = null;
+    private $loggedIn = false;
 
     public function __construct($controllerUrl, $username, $password, $siteId) {
         $this->controllerUrl = rtrim($controllerUrl, '/');
@@ -24,6 +25,10 @@ class UniFiController {
     
     // Login zum Controller
     private function login() {
+        if ($this->loggedIn) {
+            return true;
+        }
+
         $ch = curl_init();
         
         curl_setopt_array($ch, [
@@ -90,6 +95,7 @@ class UniFiController {
             $this->csrfToken = $this->readCsrfFromCookieFile();
         }
 
+        $this->loggedIn = true;
         return true;
     }
     

@@ -190,29 +190,52 @@ try {
         if (file_exists($cookieFile)) {
             $cookieContents = file_get_contents($cookieFile);
             echo "<strong>Cookie-Datei:</strong><pre style='background:#f4f4f4;padding:8px;font-size:12px'>";
-            echo htmlspecialchars($cookieContents ?: '(leer)');
+            echo htmlspecialchars($cookieContents ?: '(leer — TOKEN hat Partitioned-Attribut, libcurl schreibt es nicht in die Jar-Datei)');
             echo "</pre>";
+        }
+
+        // Extract TOKEN from Set-Cookie header (the fix for Partitioned cookie issue)
+        $tokenCookie = null;
+        foreach ($responseHeaders as $h) {
+            if (stripos($h, 'set-cookie:') === 0) {
+                $cookieVal = trim(substr($h, strlen('set-cookie:')));
+                $cookieParts = explode(';', $cookieVal);
+                $first = trim($cookieParts[0]);
+                if (strpos($first, 'TOKEN=') === 0) {
+                    $tokenCookie = $first;
+                }
+            }
+        }
+        if ($tokenCookie) {
+            echo "✓ TOKEN aus Set-Cookie-Header extrahiert: <code>" . htmlspecialchars(substr($tokenCookie, 0, 40)) . "…</code><br>";
+        } else {
+            echo "✗ TOKEN nicht in Set-Cookie-Header gefunden<br>";
         }
 
         // --- API Test (only if login succeeded) ---
         if ($httpCode === 200) {
-            echo "<strong>API-Test (stat/voucher GET):</strong><br>";
+            echo "<br><strong>API-Test (stat/voucher GET) — mit extrahiertem Cookie:</strong><br>";
             $apiHeaders = ['Content-Type: application/json'];
             if ($csrfToken !== null) {
                 $apiHeaders[] = 'X-CSRF-Token: ' . $csrfToken;
             }
 
             $ch2 = curl_init();
-            curl_setopt_array($ch2, [
+            $apiOpts = [
                 CURLOPT_URL            => $controllerUrl . "/proxy/network/api/s/" . $site['site_id'] . "/stat/voucher",
                 CURLOPT_HTTPGET        => true,
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_SSL_VERIFYPEER => false,
-                CURLOPT_COOKIEFILE     => $cookieFile,
                 CURLOPT_TIMEOUT        => 10,
                 CURLOPT_CONNECTTIMEOUT => 5,
                 CURLOPT_HTTPHEADER     => $apiHeaders,
-            ]);
+            ];
+            if ($tokenCookie !== null) {
+                $apiOpts[CURLOPT_COOKIE] = $tokenCookie;
+            } else {
+                $apiOpts[CURLOPT_COOKIEFILE] = $cookieFile;
+            }
+            curl_setopt_array($ch2, $apiOpts);
             $apiBody = curl_exec($ch2);
             $apiCode = curl_getinfo($ch2, CURLINFO_HTTP_CODE);
             $apiErr  = curl_error($ch2);

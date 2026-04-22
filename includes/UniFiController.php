@@ -6,6 +6,7 @@ class UniFiController {
     private $siteId;
     private $cookieFile;
     private $csrfToken = null;
+    private $sessionCookie = null;
 
     public function __construct($controllerUrl, $username, $password, $siteId) {
         $this->controllerUrl = rtrim($controllerUrl, '/');
@@ -46,10 +47,18 @@ class UniFiController {
             CURLOPT_HEADERFUNCTION => function($ch, $header) {
                 $parts = explode(':', $header, 2);
                 if (count($parts) === 2) {
-                    $name  = trim($parts[0]);
+                    $name  = strtolower(trim($parts[0]));
                     $value = trim($parts[1]);
-                    if (strtolower($name) === 'x-csrf-token') {
+                    if ($name === 'x-csrf-token') {
                         $this->csrfToken = $value;
+                    } elseif ($name === 'set-cookie') {
+                        // Extract TOKEN value directly — cookie jar may not persist
+                        // cookies with the 'Partitioned' attribute on some libcurl versions
+                        $cookieParts = explode(';', $value);
+                        $first = trim($cookieParts[0]);
+                        if (strpos($first, 'TOKEN=') === 0) {
+                            $this->sessionCookie = $first;
+                        }
                     }
                 }
                 return strlen($header);
@@ -100,11 +109,18 @@ class UniFiController {
             CURLOPT_URL => $url,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_COOKIEFILE => $this->cookieFile,
             CURLOPT_TIMEOUT => 10,
             CURLOPT_CONNECTTIMEOUT => 5,
             CURLOPT_HTTPHEADER => $headers
         ];
+
+        // Prefer manually extracted cookie over file-based jar — the Partitioned
+        // attribute on the TOKEN cookie prevents some libcurl versions from writing it
+        if ($this->sessionCookie !== null) {
+            $options[CURLOPT_COOKIE] = $this->sessionCookie;
+        } else {
+            $options[CURLOPT_COOKIEFILE] = $this->cookieFile;
+        }
 
         if ($method === 'GET') {
             $options[CURLOPT_HTTPGET] = true;

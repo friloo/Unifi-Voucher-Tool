@@ -38,7 +38,11 @@ class UniFiController {
             CURLOPT_COOKIEFILE => $this->cookieFile,
             CURLOPT_TIMEOUT => 10,
             CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'Origin: ' . $this->controllerUrl,
+                'Referer: ' . $this->controllerUrl . '/login',
+            ],
             CURLOPT_HEADERFUNCTION => function($ch, $header) {
                 $parts = explode(':', $header, 2);
                 if (count($parts) === 2) {

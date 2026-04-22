@@ -61,7 +61,9 @@ class UniFiController {
         curl_close($ch);
 
         if ($httpCode !== 200) {
-            throw new Exception("Login fehlgeschlagen: HTTP $httpCode");
+            $body = json_decode($response, true);
+            $detail = $body['meta']['msg'] ?? $body['errors'][0] ?? substr(strip_tags($response), 0, 120);
+            throw new Exception("Login fehlgeschlagen: HTTP $httpCode" . ($detail ? " – $detail" : ''));
         }
 
         $data = json_decode($response, true);

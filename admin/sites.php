@@ -513,6 +513,7 @@ $currentUser = $auth->getCurrentUser();
             <div class="modal-body">
                 <form method="post" id="addSiteForm">
                     <input type="hidden" name="csrf_token" value="<?= $auth->getCsrfToken() ?>">
+                    <input type="hidden" name="add_site" value="1">
                     
                     <div class="form-group">
                         <label for="name">Site-Name *</label>
@@ -559,7 +560,7 @@ $currentUser = $auth->getCurrentUser();
                     </div>
                     
                     <div style="display: flex; gap: 10px; margin-top: 25px;">
-                        <button type="submit" name="add_site" class="btn btn-primary" style="flex: 1;">
+                        <button type="submit" class="btn btn-primary" style="flex: 1;" id="addSiteSubmitBtn">
                             <i class="fas fa-save"></i> Site hinzufügen
                         </button>
                         <button type="button" onclick="closeModal('addSiteModal')" class="btn btn-secondary">
@@ -581,6 +582,7 @@ $currentUser = $auth->getCurrentUser();
             <div class="modal-body">
                 <form method="post" id="editSiteForm">
                     <input type="hidden" name="csrf_token" value="<?= $auth->getCsrfToken() ?>">
+                    <input type="hidden" name="edit_site" value="1">
                     <input type="hidden" name="site_id" id="edit_site_id">
                     
                     <div class="form-group">
@@ -621,7 +623,7 @@ $currentUser = $auth->getCurrentUser();
                     </div>
                     
                     <div style="display: flex; gap: 10px; margin-top: 25px;">
-                        <button type="submit" name="edit_site" class="btn btn-primary" style="flex: 1;">
+                        <button type="submit" class="btn btn-primary" style="flex: 1;" id="editSiteSubmitBtn">
                             <i class="fas fa-save"></i> Änderungen speichern
                         </button>
                         <button type="button" onclick="closeModal('editSiteModal')" class="btn btn-secondary">
@@ -654,16 +656,16 @@ $currentUser = $auth->getCurrentUser();
             document.getElementById('editSiteModal').classList.add('active');
         }
         
-        // Loading-State bei Formular-Absenden (verhindert Freeze-Eindruck)
+        // Loading-State bei Formular-Absenden
         document.getElementById('addSiteForm').addEventListener('submit', function() {
-            const btn = this.querySelector('button[name="add_site"]');
+            const btn = document.getElementById('addSiteSubmitBtn');
             if (btn) {
                 btn.disabled = true;
                 btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Verbindung wird getestet...';
             }
         });
         document.getElementById('editSiteForm').addEventListener('submit', function() {
-            const btn = this.querySelector('button[name="edit_site"]');
+            const btn = document.getElementById('editSiteSubmitBtn');
             if (btn) {
                 btn.disabled = true;
                 btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Verbindung wird getestet...';

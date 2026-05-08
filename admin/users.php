@@ -6,762 +6,452 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../includes/Database.php';
 require_once __DIR__ . '/../includes/Auth.php';
 require_once __DIR__ . '/../includes/Mailer.php';
+require_once __DIR__ . '/../includes/I18n.php';
 
 $auth = new Auth();
 $auth->requireAdmin();
-
 $db = Database::getInstance();
 $mailer = new Mailer();
 $appTitle = $db->getSetting('app_title', 'UniFi Voucher System');
+$smtpEnabled = $db->getSetting('smtp_enabled', '0') === '1';
+I18n::init();
 
-$error = '';
+$error   = '';
 $success = '';
 
-// Benutzer bearbeiten
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_user'])) {
-    if (!$auth->validateCsrfToken($_POST['csrf_token'] ?? '')) {
-        $error = 'Ungültiges Sicherheits-Token';
+// Send password reset link
+if (isset($_GET['send_reset']) && isset($_GET['token'])) {
+    if ($auth->validateCsrfToken($_GET['token'])) {
+        $targetUser = $db->fetchOne("SELECT * FROM users WHERE id=? AND is_active=1 AND password_hash IS NOT NULL", [(int)$_GET['send_reset']]);
+        if ($targetUser) {
+            try {
+                $db->execute("DELETE FROM password_reset_tokens WHERE user_id=?", [$targetUser['id']]);
+                $token     = bin2hex(random_bytes(32));
+                $expiresAt = date('Y-m-d H:i:s', strtotime('+1 hour'));
+                $db->execute("INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?,?,?)", [$targetUser['id'], $token, $expiresAt]);
+                $systemUrl = rtrim($db->getSetting('system_url', ''), '/');
+                if (empty($systemUrl)) {
+                    $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS']==='on' ? 'https' : 'http';
+                    $scriptPath = dirname(dirname($_SERVER['SCRIPT_NAME']));
+                    $systemUrl = $protocol . '://' . $_SERVER['HTTP_HOST'] . ($scriptPath==='/'?'':$scriptPath);
+                }
+                $resetUrl = $systemUrl . '/reset_password.php?token=' . $token;
+                $mailer->sendRaw($targetUser['email'], $appTitle . ' – Passwort zurücksetzen',
+                    "Hallo {$targetUser['name']},\n\nEin Administrator hat für Sie einen Passwort-Reset-Link erstellt:\n\n{$resetUrl}\n\n(Gültig für 1 Stunde)\n\n{$appTitle}");
+                $success = 'Passwort-Reset-Link wurde an ' . htmlspecialchars($targetUser['email']) . ' gesendet.';
+            } catch (Exception $e) {
+                $error = 'Fehler beim Senden: ' . $e->getMessage();
+            }
+        } else {
+            $error = 'Benutzer nicht gefunden oder kein lokales Passwort.';
+        }
+    } else {
+        $error = __('error_csrf');
+    }
+}
+
+// Edit user
+if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['edit_user'])) {
+    if (!$auth->validateCsrfToken($_POST['csrf_token']??'')) {
+        $error = __('error_csrf');
     } else {
         try {
-            $userId = (int)$_POST['user_id'];
+            $userId  = (int)$_POST['user_id'];
             $isAdmin = isset($_POST['is_admin']) ? 1 : 0;
             $siteIds = $_POST['site_ids'] ?? [];
-            
-            // Alten Status abrufen
-            $oldUser = $db->fetchOne("SELECT * FROM users WHERE id = ?", [$userId]);
-            $oldIsAdmin = $oldUser['is_admin'];
-            $oldSites = $db->fetchAll("SELECT s.name FROM sites s INNER JOIN user_site_access usa ON s.id = usa.site_id WHERE usa.user_id = ?", [$userId]);
-            
-            // Admin-Status aktualisieren
-            $db->query("UPDATE users SET is_admin = ? WHERE id = ?", [$isAdmin, $userId]);
-            
-            // Alte Site-Zugriffe löschen (nur wenn nicht Admin)
-            $db->query("DELETE FROM user_site_access WHERE user_id = ?", [$userId]);
-            
-            // Neue Site-Zugriffe zuweisen (nur wenn nicht Admin)
+            $oldUser = $db->fetchOne("SELECT * FROM users WHERE id=?", [$userId]);
+            $oldSites= $db->fetchAll("SELECT s.name FROM sites s INNER JOIN user_site_access usa ON s.id=usa.site_id WHERE usa.user_id=?", [$userId]);
+            $db->query("UPDATE users SET is_admin=? WHERE id=?", [$isAdmin, $userId]);
+            $db->query("DELETE FROM user_site_access WHERE user_id=?", [$userId]);
             $newSites = [];
             if (!$isAdmin && !empty($siteIds)) {
                 foreach ($siteIds as $siteId) {
-                    $db->execute(
-                        "INSERT INTO user_site_access (user_id, site_id) VALUES (?, ?)",
-                        [$userId, $siteId]
-                    );
-                    $site = $db->fetchOne("SELECT name FROM sites WHERE id = ?", [$siteId]);
-                    if ($site) {
-                        $newSites[] = $site['name'];
-                    }
+                    $db->execute("INSERT INTO user_site_access (user_id, site_id) VALUES (?,?)", [$userId, $siteId]);
+                    $site = $db->fetchOne("SELECT name FROM sites WHERE id=?", [$siteId]);
+                    if ($site) $newSites[] = $site['name'];
                 }
             }
-            
-            // E-Mail-Benachrichtigung vorbereiten
             $changes = [];
-            
-            if ($oldIsAdmin != $isAdmin) {
-                if ($isAdmin) {
-                    $changes[] = "Sie wurden zum Administrator ernannt";
-                } else {
-                    $changes[] = "Ihre Administrator-Rechte wurden entfernt";
-                }
+            if ($oldUser['is_admin'] != $isAdmin) {
+                $changes[] = $isAdmin ? 'Sie wurden zum Administrator ernannt' : 'Ihre Administrator-Rechte wurden entfernt';
             }
-            
-            // Site-Änderungen erkennen
-            $oldSiteNames = array_column($oldSites, 'name');
-            $addedSites = array_diff($newSites, $oldSiteNames);
+            $oldSiteNames = array_column($oldSites,'name');
+            $addedSites   = array_diff($newSites, $oldSiteNames);
             $removedSites = array_diff($oldSiteNames, $newSites);
-            
-            if (!empty($addedSites)) {
-                $changes[] = "Zugriff gewährt auf: " . implode(', ', $addedSites);
-            }
-            
-            if (!empty($removedSites)) {
-                $changes[] = "Zugriff entfernt von: " . implode(', ', $removedSites);
-            }
-            
-            if ($isAdmin && !$oldIsAdmin) {
-                $changes[] = "Sie haben nun Zugriff auf alle Sites";
-            }
-            
-            // E-Mail senden wenn Änderungen vorliegen
-            if (!empty($changes)) {
-                $mailer->sendUserNotification($oldUser['email'], $oldUser['name'], $changes);
-            }
-            
-            $success = 'Benutzer erfolgreich aktualisiert!' . (!empty($changes) ? ' Benachrichtigung wurde versendet.' : '');
-            
-        } catch (Exception $e) {
-            $error = $e->getMessage();
-        }
+            if (!empty($addedSites))   $changes[] = 'Zugriff gewährt auf: ' . implode(', ', $addedSites);
+            if (!empty($removedSites)) $changes[] = 'Zugriff entfernt von: ' . implode(', ', $removedSites);
+            if ($isAdmin && !$oldUser['is_admin']) $changes[] = 'Sie haben nun Zugriff auf alle Sites';
+            if (!empty($changes)) $mailer->sendUserNotification($oldUser['email'], $oldUser['name'], $changes);
+            $success = __('users_updated') . (!empty($changes) ? ' '.__('users_notified') : '');
+            $auth->writeAuditLog($_SESSION['user_id'], 'user_edit', 'user', $userId, implode('; ', $changes) ?: 'Keine Änderungen');
+        } catch (Exception $e) { $error = $e->getMessage(); }
     }
 }
 
-// Benutzer hinzufügen
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_user'])) {
-    if (!$auth->validateCsrfToken($_POST['csrf_token'] ?? '')) {
-        $error = 'Ungültiges Sicherheits-Token';
+// Add user
+if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['add_user'])) {
+    if (!$auth->validateCsrfToken($_POST['csrf_token']??'')) {
+        $error = __('error_csrf');
     } else {
         try {
-            $email = trim($_POST['email']);
-            $name = trim($_POST['name']);
-            $password = $_POST['password'];
+            $email   = trim($_POST['email']);
+            $name    = trim($_POST['name']);
+            $password= $_POST['password'];
             $isAdmin = isset($_POST['is_admin']) ? 1 : 0;
             $siteIds = $_POST['site_ids'] ?? [];
-            
-            if (empty($email) || empty($name) || empty($password)) {
-                throw new Exception('Bitte füllen Sie alle Pflichtfelder aus');
-            }
-            
-            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                throw new Exception('Ungültige E-Mail-Adresse');
-            }
-            
-            if (strlen($password) < 8) {
-                throw new Exception('Passwort muss mindestens 8 Zeichen lang sein');
-            }
-            
-            // Prüfen ob E-Mail bereits existiert
-            $existing = $db->fetchOne("SELECT id FROM users WHERE email = ?", [$email]);
-            if ($existing) {
-                throw new Exception('Ein Benutzer mit dieser E-Mail existiert bereits');
-            }
-            
-            // Benutzer anlegen
+            if (empty($email)||empty($name)||empty($password)) throw new Exception(__('error_fill_all'));
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) throw new Exception(__('error_email_invalid'));
+            if (strlen($password) < 8) throw new Exception(__('settings_pw_minlength'));
+            if ($db->fetchOne("SELECT id FROM users WHERE email=?", [$email])) throw new Exception('E-Mail bereits vorhanden');
             $userId = $auth->registerUser($email, $name, $password, $isAdmin);
-            
-            if (!$userId) {
-                throw new Exception('Benutzer konnte nicht erstellt werden');
-            }
-            
-            // Site-Zugriffe zuweisen (nur wenn nicht Admin)
+            if (!$userId) throw new Exception('Benutzer konnte nicht erstellt werden');
             if (!$isAdmin && !empty($siteIds)) {
                 foreach ($siteIds as $siteId) {
-                    $db->execute(
-                        "INSERT INTO user_site_access (user_id, site_id) VALUES (?, ?)",
-                        [$userId, $siteId]
-                    );
+                    $db->execute("INSERT INTO user_site_access (user_id, site_id) VALUES (?,?)", [$userId, $siteId]);
                 }
             }
-            
-            $success = 'Benutzer erfolgreich erstellt!';
-            
-        } catch (Exception $e) {
-            $error = $e->getMessage();
-        }
+            $auth->writeAuditLog($_SESSION['user_id'], 'user_create', 'user', $userId, "Benutzer {$name} erstellt");
+            $success = __('users_added');
+        } catch (Exception $e) { $error = $e->getMessage(); }
     }
 }
 
-// Benutzer löschen
+// Delete user
 if (isset($_GET['delete']) && isset($_GET['token'])) {
     if ($auth->validateCsrfToken($_GET['token'])) {
         $deleteId = (int)$_GET['delete'];
-        $currentUserId = $_SESSION['user_id'];
-        
-        if ($deleteId === $currentUserId) {
+        if ($deleteId === (int)$_SESSION['user_id']) {
             $error = 'Sie können sich nicht selbst löschen';
         } else {
-            $db->query("DELETE FROM users WHERE id = ?", [$deleteId]);
-            $success = 'Benutzer erfolgreich gelöscht!';
+            $db->query("DELETE FROM users WHERE id=?", [$deleteId]);
+            $auth->writeAuditLog($_SESSION['user_id'], 'user_delete', 'user', $deleteId, 'Benutzer gelöscht');
+            $success = __('users_deleted');
         }
-    } else {
-        $error = 'Ungültiges Sicherheits-Token';
-    }
+    } else { $error = __('error_csrf'); }
 }
 
-// Benutzer aktivieren/deaktivieren
+// Toggle user active
 if (isset($_GET['toggle']) && isset($_GET['token'])) {
     if ($auth->validateCsrfToken($_GET['token'])) {
         $toggleId = (int)$_GET['toggle'];
-        $currentUserId = $_SESSION['user_id'];
-        
-        if ($toggleId === $currentUserId) {
+        if ($toggleId === (int)$_SESSION['user_id']) {
             $error = 'Sie können sich nicht selbst deaktivieren';
         } else {
-            $user = $db->fetchOne("SELECT is_active FROM users WHERE id = ?", [$toggleId]);
+            $user = $db->fetchOne("SELECT is_active FROM users WHERE id=?", [$toggleId]);
             if ($user) {
                 $newStatus = $user['is_active'] ? 0 : 1;
-                $db->query("UPDATE users SET is_active = ? WHERE id = ?", [$newStatus, $toggleId]);
+                $db->query("UPDATE users SET is_active=? WHERE id=?", [$newStatus, $toggleId]);
                 $success = 'Benutzer-Status aktualisiert!';
             }
         }
-    }
+    } else { $error = __('error_csrf'); }
 }
 
-// Alle Benutzer und Sites abrufen
-$users = $db->fetchAll("SELECT * FROM users ORDER BY name");
-$sites = $db->fetchAll("SELECT * FROM sites WHERE is_active = 1 ORDER BY name");
-
-// Site-Zugriffe für jeden Benutzer abrufen
+$users   = $db->fetchAll("SELECT * FROM users ORDER BY name");
+$sites   = $db->fetchAll("SELECT * FROM sites WHERE is_active=1 ORDER BY name");
 $userSiteAccess = [];
 foreach ($users as $user) {
-    $userSiteAccess[$user['id']] = $db->fetchAll(
-        "SELECT s.name FROM sites s 
-         INNER JOIN user_site_access usa ON s.id = usa.site_id 
-         WHERE usa.user_id = ?",
-        [$user['id']]
-    );
+    $userSiteAccess[$user['id']] = $db->fetchAll("SELECT s.id, s.name FROM sites s INNER JOIN user_site_access usa ON s.id=usa.site_id WHERE usa.user_id=?", [$user['id']]);
 }
-
-$currentUser = $auth->getCurrentUser();
+$currentPage = 'users';
 ?>
 <!DOCTYPE html>
-<html lang="de">
+<html lang="<?= I18n::getLanguage() ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Benutzer verwalten - <?= htmlspecialchars($appTitle) ?></title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: #f5f7fa;
-        }
-        .header {
-            background: white;
-            border-bottom: 1px solid #e0e0e0;
-            padding: 0 30px;
-            height: 70px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-        }
-        .header-title { font-size: 20px; font-weight: 600; color: #333; }
-        .sidebar {
-            position: fixed;
-            left: 0;
-            top: 70px;
-            bottom: 0;
-            width: 260px;
-            background: white;
-            border-right: 1px solid #e0e0e0;
-            padding: 30px 0;
-        }
-        .sidebar-nav { list-style: none; }
-        .sidebar-nav a {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 12px 30px;
-            color: #666;
-            text-decoration: none;
-            transition: all 0.2s;
-            font-size: 15px;
-        }
-        .sidebar-nav a:hover,
-        .sidebar-nav a.active {
-            background: #f8f9fa;
-            color: #667eea;
-        }
-        .sidebar-nav i { width: 20px; text-align: center; }
-        .main-content {
-            margin-left: 260px;
-            padding: 30px;
-            min-height: calc(100vh - 70px);
-        }
-        .page-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 30px;
-        }
-        .page-title { font-size: 28px; font-weight: 600; color: #333; }
-        .btn {
-            padding: 10px 20px;
-            border-radius: 8px;
-            border: none;
-            font-weight: 500;
-            cursor: pointer;
-            text-decoration: none;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            transition: all 0.2s;
-            font-size: 14px;
-        }
-        .btn-primary {
-            background: #667eea;
-            color: white;
-        }
-        .btn-primary:hover { background: #5568d3; }
-        .btn-secondary {
-            background: #f8f9fa;
-            color: #666;
-            border: 1px solid #e0e0e0;
-        }
-        .btn-danger {
-            background: #dc3545;
-            color: white;
-        }
-        .btn-small {
-            padding: 6px 12px;
-            font-size: 13px;
-        }
-        .card {
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            border: 1px solid #e0e0e0;
-            overflow: hidden;
-        }
-        .card-header {
-            padding: 20px 25px;
-            border-bottom: 1px solid #e0e0e0;
-        }
-        .card-title { font-size: 18px; font-weight: 600; color: #333; }
-        .card-body { padding: 0; }
-        .alert {
-            padding: 14px 25px;
-            margin: 0 25px 20px 25px;
-            border-radius: 10px;
-            font-size: 14px;
-        }
-        .alert-error {
-            background: #fee;
-            border: 1px solid #fcc;
-            color: #c33;
-        }
-        .alert-success {
-            background: #efe;
-            border: 1px solid #cfc;
-            color: #3c3;
-        }
-        .table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        .table th {
-            text-align: left;
-            padding: 15px;
-            background: #f8f9fa;
-            color: #666;
-            font-weight: 600;
-            font-size: 13px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        .table td {
-            padding: 15px;
-            border-bottom: 1px solid #f0f0f0;
-            color: #333;
-        }
-        .table tr:last-child td {
-            border-bottom: none;
-        }
-        .badge {
-            display: inline-block;
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 11px;
-            font-weight: 500;
-            margin-right: 5px;
-        }
-        .badge-success {
-            background: #d4edda;
-            color: #155724;
-        }
-        .badge-warning {
-            background: #fff3cd;
-            color: #856404;
-        }
-        .badge-danger {
-            background: #f8d7da;
-            color: #721c24;
-        }
-        .badge-info {
-            background: #d1ecf1;
-            color: #0c5460;
-        }
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.5);
-            z-index: 1000;
-            align-items: center;
-            justify-content: center;
-        }
-        .modal.active { display: flex; }
-        .modal-content {
-            background: white;
-            border-radius: 15px;
-            max-width: 600px;
-            width: 90%;
-            max-height: 90vh;
-            overflow-y: auto;
-        }
-        .modal-header {
-            padding: 25px;
-            border-bottom: 1px solid #e0e0e0;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .modal-title { font-size: 20px; font-weight: 600; }
-        .modal-close {
-            background: none;
-            border: none;
-            font-size: 24px;
-            cursor: pointer;
-            color: #999;
-        }
-        .modal-body { padding: 25px; }
-        .form-group { margin-bottom: 20px; }
-        label {
-            display: block;
-            margin-bottom: 8px;
-            color: #555;
-            font-weight: 500;
-            font-size: 14px;
-        }
-        input[type="text"],
-        input[type="email"],
-        input[type="password"] {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            font-size: 14px;
-            transition: border-color 0.3s;
-        }
-        input:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-        .checkbox-group {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 10px;
-        }
-        .checkbox-group input {
-            width: auto;
-        }
-        .site-selection {
-            border: 1px solid #e0e0e0;
-            border-radius: 8px;
-            padding: 15px;
-            max-height: 200px;
-            overflow-y: auto;
-        }
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-            color: #999;
-        }
-        .empty-state i {
-            font-size: 48px;
-            margin-bottom: 20px;
-            opacity: 0.3;
-        }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <div class="header-title">
-            <i class="fas fa-shield-alt"></i> Administration
-        </div>
-        <a href="../index.php" class="btn btn-secondary">
-            <i class="fas fa-arrow-left"></i> Zurück
-        </a>
-    </div>
-    
-    <div class="sidebar">
-        <nav class="sidebar-nav">
-            <ul>
-                <li><a href="index.php"><i class="fas fa-home"></i> Dashboard</a></li>
-                <li><a href="sites.php"><i class="fas fa-map-marker-alt"></i> Sites verwalten</a></li>
-                <li><a href="users.php" class="active"><i class="fas fa-users"></i> Benutzer verwalten</a></li>
-                <li><a href="vouchers.php"><i class="fas fa-ticket-alt"></i> Voucher-Historie</a></li>
-                <li><a href="settings.php"><i class="fas fa-cog"></i> Einstellungen</a></li>
-            </ul>
-        </nav>
-    </div>
-    
-    <div class="main-content">
-        <div class="page-header">
-            <h1 class="page-title">Benutzer verwalten</h1>
-            <button onclick="openModal()" class="btn btn-primary">
-                <i class="fas fa-plus"></i> Neuer Benutzer
-            </button>
-        </div>
-        
-        <?php if ($error): ?>
-            <div class="alert alert-error"><i class="fas fa-exclamation-circle"></i> <?= htmlspecialchars($error) ?></div>
-        <?php endif; ?>
-        
-        <?php if ($success): ?>
-            <div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= htmlspecialchars($success) ?></div>
-        <?php endif; ?>
-        
-        <div class="card">
-            <div class="card-header">
-                <h2 class="card-title">Alle Benutzer</h2>
-            </div>
-            <div class="card-body">
-                <?php if (empty($users)): ?>
-                    <div class="empty-state">
-                        <i class="fas fa-users"></i>
-                        <p>Noch keine Benutzer vorhanden</p>
-                    </div>
-                <?php else: ?>
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>E-Mail</th>
-                                <th>Rolle</th>
-                                <th>Status</th>
-                                <th>Site-Zugriffe</th>
-                                <th>Letzter Login</th>
-                                <th>Aktionen</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($users as $user): ?>
-                            <tr>
-                                <td>
-                                    <strong><?= htmlspecialchars($user['name']) ?></strong>
-                                    <?php if ($user['id'] == $_SESSION['user_id']): ?>
-                                        <span class="badge badge-info">Sie</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td><?= htmlspecialchars($user['email']) ?></td>
-                                <td>
-                                    <?php if ($user['is_admin']): ?>
-                                        <span class="badge badge-danger"><i class="fas fa-crown"></i> Admin</span>
-                                    <?php else: ?>
-                                        <span class="badge badge-info">Benutzer</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <?php if ($user['is_active']): ?>
-                                        <span class="badge badge-success"><i class="fas fa-check"></i> Aktiv</span>
-                                    <?php else: ?>
-                                        <span class="badge badge-warning"><i class="fas fa-pause"></i> Inaktiv</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <?php if ($user['is_admin']): ?>
-                                        <em style="color: #999;">Alle Sites</em>
-                                    <?php elseif (!empty($userSiteAccess[$user['id']])): ?>
-                                        <?php foreach ($userSiteAccess[$user['id']] as $site): ?>
-                                            <span class="badge badge-info"><?= htmlspecialchars($site['name']) ?></span>
-                                        <?php endforeach; ?>
-                                    <?php else: ?>
-                                        <em style="color: #999;">Keine</em>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <?php if ($user['last_login']): ?>
-                                        <?= date('d.m.Y H:i', strtotime($user['last_login'])) ?>
-                                    <?php else: ?>
-                                        <em style="color: #999;">Noch nie</em>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <?php if ($user['id'] != $_SESSION['user_id']): ?>
-                                        <button onclick="openEditModal(<?= $user['id'] ?>, '<?= htmlspecialchars($user['name'], ENT_QUOTES) ?>', <?= $user['is_admin'] ?>, [<?= implode(',', array_map(function($s) { return $s['site_id'] ?? 0; }, $db->fetchAll("SELECT site_id FROM user_site_access WHERE user_id = ?", [$user['id']]))) ?>])" 
-                                           class="btn btn-secondary btn-small">
-                                            <i class="fas fa-edit"></i>
-                                        </button>
-                                        <a href="?toggle=<?= $user['id'] ?>&token=<?= $auth->getCsrfToken() ?>" 
-                                           class="btn btn-secondary btn-small">
-                                            <i class="fas fa-<?= $user['is_active'] ? 'pause' : 'play' ?>"></i>
-                                        </a>
-                                        <a href="?delete=<?= $user['id'] ?>&token=<?= $auth->getCsrfToken() ?>" 
-                                           class="btn btn-danger btn-small"
-                                           onclick="return confirm('Benutzer wirklich löschen?')">
-                                            <i class="fas fa-trash"></i>
-                                        </a>
-                                    <?php else: ?>
-                                        <button onclick="openEditModal(<?= $user['id'] ?>, '<?= htmlspecialchars($user['name'], ENT_QUOTES) ?>', <?= $user['is_admin'] ?>, [<?= implode(',', array_map(function($s) { return $s['site_id'] ?? 0; }, $db->fetchAll("SELECT site_id FROM user_site_access WHERE user_id = ?", [$user['id']]))) ?>])" 
-                                           class="btn btn-secondary btn-small">
-                                            <i class="fas fa-edit"></i>
-                                        </button>
-                                    <?php endif; ?>
-                                </td>
-                            </tr>
+    <title><?= __('users_title') ?> – <?= htmlspecialchars($appTitle) ?></title>
+<?php include __DIR__ . '/../includes/admin_nav.php'; ?>
+<style>
+    .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; flex-wrap: wrap; gap: 12px; }
+    .page-title { font-size: 26px; font-weight: 700; color: var(--text-primary); }
+    .card { background: var(--bg-card); border-radius: 14px; box-shadow: 0 2px 10px var(--shadow); border: 1px solid var(--border-color); overflow: hidden; margin-bottom: 24px; }
+    .card-header { padding: 18px 22px; border-bottom: 1px solid var(--border-color); }
+    .card-title { font-size: 16px; font-weight: 600; color: var(--text-primary); }
+    .alert { padding: 13px 18px; border-radius: 10px; font-size: 14px; margin-bottom: 20px; }
+    .alert-error   { background: #fee; border: 1px solid #fcc; color: #c33; }
+    .alert-success { background: #efe; border: 1px solid #cfc; color: #3c3; }
+    .table { width: 100%; border-collapse: collapse; }
+    .table th { text-align: left; padding: 12px 15px; background: var(--bg-table-head); color: var(--text-muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+    .table td { padding: 13px 15px; border-bottom: 1px solid var(--border-color); color: var(--text-primary); font-size: 14px; }
+    .table tr:last-child td { border-bottom: none; }
+    .table tr:hover { background: var(--bg-hover); }
+    .badge { display: inline-block; padding: 3px 9px; border-radius: 5px; font-size: 11px; font-weight: 500; margin: 2px; }
+    .badge-success { background: #d4edda; color: #155724; }
+    .badge-warning { background: #fff3cd; color: #856404; }
+    .badge-danger  { background: #f8d7da; color: #721c24; }
+    .badge-info    { background: var(--bg-badge-info); color: var(--text-badge-info); }
+    .btn { padding: 8px 16px; border-radius: 8px; border: none; font-weight: 500; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 7px; transition: all .2s; font-size: 13px; }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-secondary { background: var(--bg-hover); color: var(--text-secondary); border: 1px solid var(--border-color); }
+    .btn-secondary:hover { background: var(--border-color); }
+    .btn-danger { background: var(--danger); color: white; }
+    .btn-warning { background: var(--warning); color: #333; }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+    .modal { display: none; position: fixed; inset: 0; background: var(--modal-overlay); z-index: 1000; align-items: center; justify-content: center; }
+    .modal.active { display: flex; }
+    .modal-content { background: var(--bg-card); border-radius: 14px; max-width: 580px; width: 90%; max-height: 90vh; overflow-y: auto; border: 1px solid var(--border-color); }
+    .modal-header { padding: 22px 25px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+    .modal-title { font-size: 19px; font-weight: 600; color: var(--text-primary); }
+    .modal-close { background: none; border: none; font-size: 22px; cursor: pointer; color: var(--text-muted); }
+    .modal-body { padding: 22px 25px; }
+    .form-group { margin-bottom: 18px; }
+    label { display: block; margin-bottom: 7px; color: var(--text-secondary); font-weight: 500; font-size: 14px; }
+    input[type="text"], input[type="email"], input[type="password"] { width: 100%; padding: 11px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 14px; background: var(--bg-input); color: var(--text-primary); transition: border-color .2s; }
+    input:focus { outline: none; border-color: var(--accent); }
+    .checkbox-group { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .checkbox-group input { width: auto; }
+    .site-selection { border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; max-height: 180px; overflow-y: auto; background: var(--bg-hover); }
+    .empty-state { text-align: center; padding: 50px 20px; color: var(--text-muted); }
+    .empty-state i { font-size: 40px; margin-bottom: 15px; opacity: .3; display: block; }
+    .action-btns { display: flex; gap: 5px; flex-wrap: wrap; }
+    @media(max-width:768px){ .main-content{ margin-left:0!important; } .table th:nth-child(5),.table td:nth-child(5){ display:none; } }
+</style>
+
+<div class="page-header">
+    <h1 class="page-title"><?= __('users_title') ?></h1>
+    <button onclick="openModal()" class="btn btn-primary">
+        <i class="fas fa-plus"></i> <?= __('users_add') ?>
+    </button>
+</div>
+
+<?php if ($error): ?>
+    <div class="alert alert-error"><i class="fas fa-exclamation-circle"></i> <?= htmlspecialchars($error) ?></div>
+<?php endif; ?>
+<?php if ($success): ?>
+    <div class="alert alert-success"><i class="fas fa-check-circle"></i> <?= htmlspecialchars($success) ?></div>
+<?php endif; ?>
+
+<div class="card">
+    <div class="card-header"><h2 class="card-title"><?= __('users_all') ?></h2></div>
+    <div class="card-body" style="padding:0;">
+        <?php if (empty($users)): ?>
+            <div class="empty-state"><i class="fas fa-users"></i><p><?= __('users_none_found') ?></p></div>
+        <?php else: ?>
+        <div style="overflow-x:auto;">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th><?= __('label_name') ?></th>
+                    <th><?= __('label_email') ?></th>
+                    <th><?= __('label_role') ?></th>
+                    <th><?= __('label_status') ?></th>
+                    <th><?= __('users_site_access') ?></th>
+                    <th><?= __('users_last_login') ?></th>
+                    <th><?= __('label_actions') ?></th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($users as $user): ?>
+                <?php $userSiteIds = array_column($userSiteAccess[$user['id']]??[], 'id'); ?>
+                <tr>
+                    <td>
+                        <strong><?= htmlspecialchars($user['name']) ?></strong>
+                        <?php if ($user['id'] == $_SESSION['user_id']): ?>
+                            <span class="badge badge-info"><?= __('users_you') ?></span>
+                        <?php endif; ?>
+                    </td>
+                    <td><?= htmlspecialchars($user['email']) ?></td>
+                    <td>
+                        <?php if ($user['is_admin']): ?>
+                            <span class="badge badge-danger"><i class="fas fa-crown"></i> <?= __('status_admin') ?></span>
+                        <?php else: ?>
+                            <span class="badge badge-info"><?= __('status_user') ?></span>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <?php if ($user['is_active']): ?>
+                            <span class="badge badge-success"><i class="fas fa-check"></i> <?= __('status_active') ?></span>
+                        <?php else: ?>
+                            <span class="badge badge-warning"><i class="fas fa-pause"></i> <?= __('status_inactive') ?></span>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <?php if ($user['is_admin']): ?>
+                            <em style="color:var(--text-muted);"><?= __('users_all_sites') ?></em>
+                        <?php elseif (!empty($userSiteAccess[$user['id']])): ?>
+                            <?php foreach ($userSiteAccess[$user['id']] as $s): ?>
+                                <span class="badge badge-info"><?= htmlspecialchars($s['name']) ?></span>
                             <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                <?php endif; ?>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Modal für neuen Benutzer -->
-    <div id="addUserModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 class="modal-title">Neuen Benutzer anlegen</h2>
-                <button class="modal-close" onclick="closeModal('addUserModal')">&times;</button>
-            </div>
-            <div class="modal-body">
-                <form method="post" id="addUserForm">
-                    <input type="hidden" name="csrf_token" value="<?= $auth->getCsrfToken() ?>">
-                    
-                    <div class="form-group">
-                        <label for="name">Name *</label>
-                        <input type="text" id="name" name="name" required>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="email">E-Mail *</label>
-                        <input type="email" id="email" name="email" required>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="password">Passwort *</label>
-                        <input type="password" id="password" name="password" required minlength="8">
-                        <small style="color: #999; font-size: 12px;">Mindestens 8 Zeichen</small>
-                    </div>
-                    
-                    <div class="form-group">
-                        <div class="checkbox-group">
-                            <input type="checkbox" id="is_admin" name="is_admin" onchange="toggleSiteSelection('add')">
-                            <label for="is_admin" style="margin: 0;">Administrator-Rechte</label>
-                        </div>
-                        <small style="color: #999; font-size: 12px;">Admins haben Zugriff auf alle Sites und Einstellungen</small>
-                    </div>
-                    
-                    <div class="form-group" id="siteSelectionGroup">
-                        <label>Site-Zugriffe</label>
-                        <div class="site-selection">
-                            <?php if (empty($sites)): ?>
-                                <em style="color: #999;">Keine Sites verfügbar. Bitte zuerst Sites anlegen.</em>
-                            <?php else: ?>
-                                <?php foreach ($sites as $site): ?>
-                                    <div class="checkbox-group">
-                                        <input type="checkbox" name="site_ids[]" value="<?= $site['id'] ?>" id="site_<?= $site['id'] ?>">
-                                        <label for="site_<?= $site['id'] ?>" style="margin: 0;"><?= htmlspecialchars($site['name']) ?></label>
-                                    </div>
-                                <?php endforeach; ?>
+                        <?php else: ?>
+                            <em style="color:var(--text-muted);"><?= __('users_none') ?></em>
+                        <?php endif; ?>
+                    </td>
+                    <td style="font-size:13px;">
+                        <?php if ($user['last_login']): ?>
+                            <?= date('d.m.Y H:i', strtotime($user['last_login'])) ?>
+                        <?php else: ?>
+                            <em style="color:var(--text-muted);"><?= __('users_never') ?></em>
+                        <?php endif; ?>
+                    </td>
+                    <td>
+                        <div class="action-btns">
+                            <button onclick="openEditModal(<?= $user['id'] ?>, '<?= htmlspecialchars($user['name'], ENT_QUOTES) ?>', <?= $user['is_admin'] ?>, [<?= implode(',', array_map('intval', $userSiteIds)) ?>])"
+                                    class="btn btn-secondary btn-sm" title="<?= __('btn_edit') ?>">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <?php if ($user['id'] != $_SESSION['user_id']): ?>
+                                <a href="?toggle=<?= $user['id'] ?>&token=<?= $auth->getCsrfToken() ?>"
+                                   class="btn btn-secondary btn-sm" title="<?= $user['is_active'] ? __('sites_deactivate') : __('sites_activate') ?>">
+                                    <i class="fas fa-<?= $user['is_active'] ? 'pause' : 'play' ?>"></i>
+                                </a>
+                                <?php if ($smtpEnabled && !empty($user['password_hash'])): ?>
+                                <a href="?send_reset=<?= $user['id'] ?>&token=<?= $auth->getCsrfToken() ?>"
+                                   class="btn btn-warning btn-sm" title="<?= __('users_reset_pw') ?>"
+                                   onclick="return confirm('Passwort-Reset-Link senden an <?= htmlspecialchars($user['email'], ENT_QUOTES) ?>?')">
+                                    <i class="fas fa-key"></i>
+                                </a>
+                                <?php endif; ?>
+                                <a href="?delete=<?= $user['id'] ?>&token=<?= $auth->getCsrfToken() ?>"
+                                   class="btn btn-danger btn-sm" title="<?= __('btn_delete') ?>"
+                                   onclick="return confirm('Benutzer wirklich löschen?')">
+                                    <i class="fas fa-trash"></i>
+                                </a>
                             <?php endif; ?>
                         </div>
-                        <small style="color: #999; font-size: 12px;">Wählen Sie die Sites, auf die dieser Benutzer Zugriff haben soll</small>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+        </div>
+        <?php endif; ?>
+    </div>
+</div>
+
+</div><!-- /main-content -->
+
+<!-- Add User Modal -->
+<div id="addUserModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 class="modal-title"><?= __('users_add_title') ?></h2>
+            <button class="modal-close" onclick="closeModal('addUserModal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form method="post" id="addUserForm">
+                <input type="hidden" name="csrf_token" value="<?= $auth->getCsrfToken() ?>">
+                <div class="form-group">
+                    <label><?= __('label_name') ?> *</label>
+                    <input type="text" name="name" required>
+                </div>
+                <div class="form-group">
+                    <label><?= __('label_email') ?> *</label>
+                    <input type="email" name="email" required>
+                </div>
+                <div class="form-group">
+                    <label><?= __('label_password') ?> *</label>
+                    <input type="password" name="password" required minlength="8">
+                    <small style="color:var(--text-muted);font-size:12px;"><?= __('users_password_hint') ?></small>
+                </div>
+                <div class="form-group">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="add_is_admin" name="is_admin" onchange="toggleSiteSelection('add')">
+                        <label for="add_is_admin" style="margin:0;"><?= __('users_admin_check') ?></label>
                     </div>
-                    
-                    <div style="display: flex; gap: 10px; margin-top: 25px;">
-                        <button type="submit" name="add_user" class="btn btn-primary" style="flex: 1;">
-                            <i class="fas fa-save"></i> Benutzer anlegen
-                        </button>
-                        <button type="button" onclick="closeModal('addUserModal')" class="btn btn-secondary">
-                            Abbrechen
-                        </button>
+                    <small style="color:var(--text-muted);font-size:12px;"><?= __('users_admin_hint') ?></small>
+                </div>
+                <div class="form-group" id="siteSelectionGroup">
+                    <label><?= __('users_site_access') ?></label>
+                    <div class="site-selection">
+                        <?php if (empty($sites)): ?>
+                            <em style="color:var(--text-muted);"><?= __('users_no_sites') ?></em>
+                        <?php else: ?>
+                            <?php foreach ($sites as $site): ?>
+                            <div class="checkbox-group">
+                                <input type="checkbox" name="site_ids[]" value="<?= $site['id'] ?>" id="add_site_<?= $site['id'] ?>">
+                                <label for="add_site_<?= $site['id'] ?>" style="margin:0;"><?= htmlspecialchars($site['name']) ?></label>
+                            </div>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
                     </div>
-                </form>
-            </div>
+                    <small style="color:var(--text-muted);font-size:12px;"><?= __('users_site_hint') ?></small>
+                </div>
+                <div style="display:flex;gap:10px;margin-top:20px;">
+                    <button type="submit" name="add_user" class="btn btn-primary" style="flex:1;">
+                        <i class="fas fa-save"></i> <?= __('users_save') ?>
+                    </button>
+                    <button type="button" onclick="closeModal('addUserModal')" class="btn btn-secondary"><?= __('btn_cancel') ?></button>
+                </div>
+            </form>
         </div>
     </div>
-    
-    <!-- Modal für Benutzer bearbeiten -->
-    <div id="editUserModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 class="modal-title">Benutzer bearbeiten</h2>
-                <button class="modal-close" onclick="closeModal('editUserModal')">&times;</button>
-            </div>
-            <div class="modal-body">
-                <form method="post" id="editUserForm">
-                    <input type="hidden" name="csrf_token" value="<?= $auth->getCsrfToken() ?>">
-                    <input type="hidden" name="user_id" id="edit_user_id">
-                    
-                    <div class="form-group">
-                        <label>Name</label>
-                        <input type="text" id="edit_name" readonly style="background: #f5f5f5;">
+</div>
+
+<!-- Edit User Modal -->
+<div id="editUserModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 class="modal-title"><?= __('users_edit_title') ?></h2>
+            <button class="modal-close" onclick="closeModal('editUserModal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form method="post" id="editUserForm">
+                <input type="hidden" name="csrf_token" value="<?= $auth->getCsrfToken() ?>">
+                <input type="hidden" name="user_id" id="edit_user_id">
+                <div class="form-group">
+                    <label><?= __('label_name') ?></label>
+                    <input type="text" id="edit_name" readonly style="background:var(--bg-hover);">
+                </div>
+                <div class="form-group">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="edit_is_admin" name="is_admin" onchange="toggleSiteSelection('edit')">
+                        <label for="edit_is_admin" style="margin:0;"><?= __('users_admin_check') ?></label>
                     </div>
-                    
-                    <div class="form-group">
+                    <small style="color:var(--text-muted);font-size:12px;"><?= __('users_admin_hint') ?></small>
+                </div>
+                <div class="form-group" id="editSiteSelectionGroup">
+                    <label><?= __('users_site_access') ?></label>
+                    <div class="site-selection" id="editSitesList">
+                        <?php foreach ($sites as $site): ?>
                         <div class="checkbox-group">
-                            <input type="checkbox" id="edit_is_admin" name="is_admin" onchange="toggleSiteSelection('edit')">
-                            <label for="edit_is_admin" style="margin: 0;">Administrator-Rechte</label>
+                            <input type="checkbox" name="site_ids[]" value="<?= $site['id'] ?>" id="edit_site_<?= $site['id'] ?>">
+                            <label for="edit_site_<?= $site['id'] ?>" style="margin:0;"><?= htmlspecialchars($site['name']) ?></label>
                         </div>
-                        <small style="color: #999; font-size: 12px;">Admins haben Zugriff auf alle Sites und Einstellungen</small>
+                        <?php endforeach; ?>
                     </div>
-                    
-                    <div class="form-group" id="editSiteSelectionGroup">
-                        <label>Site-Zugriffe</label>
-                        <div class="site-selection" id="editSitesList">
-                            <?php if (!empty($sites)): ?>
-                                <?php foreach ($sites as $site): ?>
-                                    <div class="checkbox-group">
-                                        <input type="checkbox" name="site_ids[]" value="<?= $site['id'] ?>" id="edit_site_<?= $site['id'] ?>">
-                                        <label for="edit_site_<?= $site['id'] ?>" style="margin: 0;"><?= htmlspecialchars($site['name']) ?></label>
-                                    </div>
-                                <?php endforeach; ?>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                    
-                    <div style="display: flex; gap: 10px; margin-top: 25px;">
-                        <button type="submit" name="edit_user" class="btn btn-primary" style="flex: 1;">
-                            <i class="fas fa-save"></i> Änderungen speichern
-                        </button>
-                        <button type="button" onclick="closeModal('editUserModal')" class="btn btn-secondary">
-                            Abbrechen
-                        </button>
-                    </div>
-                </form>
-            </div>
+                </div>
+                <div style="display:flex;gap:10px;margin-top:20px;">
+                    <button type="submit" name="edit_user" class="btn btn-primary" style="flex:1;">
+                        <i class="fas fa-save"></i> <?= __('users_save_edit') ?>
+                    </button>
+                    <button type="button" onclick="closeModal('editUserModal')" class="btn btn-secondary"><?= __('btn_cancel') ?></button>
+                </div>
+            </form>
         </div>
     </div>
-    
-    <script>
-        function openModal() {
-            document.getElementById('addUserModal').classList.add('active');
-        }
-        
-        function closeModal(modalId) {
-            document.getElementById(modalId).classList.remove('active');
-        }
-        
-        function openEditModal(userId, userName, isAdmin, siteIds) {
-            document.getElementById('edit_user_id').value = userId;
-            document.getElementById('edit_name').value = userName;
-            document.getElementById('edit_is_admin').checked = isAdmin == 1;
-            
-            // Alle Checkboxen erst deaktivieren
-            document.querySelectorAll('#editSitesList input[type="checkbox"]').forEach(cb => {
-                cb.checked = false;
-            });
-            
-            // Ausgewählte Sites aktivieren
-            siteIds.forEach(siteId => {
-                const checkbox = document.getElementById('edit_site_' + siteId);
-                if (checkbox) checkbox.checked = true;
-            });
-            
-            toggleSiteSelection('edit');
-            document.getElementById('editUserModal').classList.add('active');
-        }
-        
-        function toggleSiteSelection(mode) {
-            const isAdmin = document.getElementById(mode + '_is_admin').checked;
-            const siteSelection = document.getElementById(mode === 'add' ? 'siteSelectionGroup' : 'editSiteSelectionGroup');
-            siteSelection.style.display = isAdmin ? 'none' : 'block';
-        }
-        
-        // Initial state
-        toggleSiteSelection('add');
-        
-        // Modal schließen bei Klick außerhalb
-        document.getElementById('addUserModal').addEventListener('click', function(e) {
-            if (e.target === this) {
-                closeModal('addUserModal');
-            }
-        });
-        
-        document.getElementById('editUserModal').addEventListener('click', function(e) {
-            if (e.target === this) {
-                closeModal('editUserModal');
-            }
-        });
-    </script>
+</div>
+
+<div id="toast-container"></div>
+<script src="../assets/global.js"></script>
+<script>
+function openModal() { document.getElementById('addUserModal').classList.add('active'); }
+function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+function openEditModal(userId, userName, isAdmin, siteIds) {
+    document.getElementById('edit_user_id').value = userId;
+    document.getElementById('edit_name').value    = userName;
+    document.getElementById('edit_is_admin').checked = isAdmin == 1;
+    document.querySelectorAll('#editSitesList input[type="checkbox"]').forEach(cb => cb.checked = false);
+    siteIds.forEach(id => { const cb = document.getElementById('edit_site_' + id); if (cb) cb.checked = true; });
+    toggleSiteSelection('edit');
+    document.getElementById('editUserModal').classList.add('active');
+}
+
+function toggleSiteSelection(mode) {
+    const isAdmin = document.getElementById(mode + '_is_admin').checked;
+    const group   = document.getElementById(mode === 'add' ? 'siteSelectionGroup' : 'editSiteSelectionGroup');
+    if (group) group.style.display = isAdmin ? 'none' : 'block';
+}
+
+toggleSiteSelection('add');
+
+['addUserModal','editUserModal'].forEach(id => {
+    document.getElementById(id).addEventListener('click', function(e) {
+        if (e.target === this) closeModal(id);
+    });
+});
+</script>
 </body>
 </html>

@@ -38,11 +38,23 @@ class Auth {
             $this->clearLoginAttempts($ip, $email);
             $this->setUserSession($user);
             $this->updateLastLogin($user['id']);
+            $this->writeAuditLog($user['id'], 'user_login', 'user', $user['id'], 'Login erfolgreich');
             return true;
         }
 
         $this->recordLoginAttempt($ip, $email);
         return false;
+    }
+
+    public function writeAuditLog($userId, $action, $entityType = null, $entityId = null, $details = null) {
+        try {
+            $this->db->execute(
+                "INSERT INTO audit_log (user_id, action, entity_type, entity_id, details, ip_address) VALUES (?, ?, ?, ?, ?, ?)",
+                [$userId, $action, $entityType, $entityId !== null ? (string)$entityId : null, $details, $_SERVER['REMOTE_ADDR'] ?? '']
+            );
+        } catch (\Exception $e) {
+            // audit_log table may not exist on old installs
+        }
     }
 
     private function isRateLimited($ip, $email) {

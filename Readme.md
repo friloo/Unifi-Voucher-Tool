@@ -79,6 +79,17 @@
   <img src="docs/screenshots/maintenance.png" alt="Wartungsmodus" width="48%">
 </div>
 
+### REST-API, 2FA & Integrationen
+
+<div align="center">
+  <img src="docs/screenshots/api-keys.png" alt="API-Schlüssel-Verwaltung" width="48%">
+  <img src="docs/screenshots/integrations.png" alt="Integration & Wartung" width="48%">
+</div>
+
+<div align="center">
+  <img src="docs/screenshots/two-factor.png" alt="Zwei-Faktor-Authentifizierung" width="60%">
+</div>
+
 ---
 
 ## 📋 Anforderungen

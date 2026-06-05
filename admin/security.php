@@ -16,8 +16,10 @@ $appTitle = $db->getSetting('app_title', 'UniFi Voucher System');
 
 $error = '';
 $success = '';
+$backupCodes = [];           // nur direkt nach Erzeugung gefüllt
 $hasPassword = !empty($user['password_hash']);
 $totpEnabled = !empty($user['totp_enabled']);
+$setupRequired = isset($_GET['setup_required']);
 
 // 2FA aktivieren (Code bestaetigen)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['enable_totp'])) {
@@ -31,11 +33,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['enable_totp'])) {
         } elseif (!Totp::verify($secret, $code)) {
             $error = 'Code ungültig. Bitte erneut versuchen.';
         } else {
-            $auth->enableTotp($user['id'], $secret);
+            $backupCodes = $auth->enableTotp($user['id'], $secret);
             unset($_SESSION['totp_setup_secret']);
             $totpEnabled = true;
-            $success = 'Zwei-Faktor-Authentifizierung wurde aktiviert.';
+            $user = $auth->getCurrentUser();
+            $success = 'Zwei-Faktor-Authentifizierung wurde aktiviert. Bitte Recovery-Codes sicher speichern!';
         }
+    }
+}
+
+// Recovery-Codes neu erzeugen
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['regen_codes'])) {
+    if (!$auth->validateCsrfToken($_POST['csrf_token'] ?? '')) {
+        $error = 'Ungültiges Sicherheits-Token';
+    } elseif (!empty($user['totp_enabled'])) {
+        $backupCodes = $auth->regenerateBackupCodes($user['id']);
+        $user = $auth->getCurrentUser();
+        $success = 'Neue Recovery-Codes erzeugt. Die alten sind jetzt ungültig.';
     }
 }
 
@@ -88,6 +102,10 @@ input[type=text] { width:100%; padding:13px; border:2px solid #e0e0e0; border-ra
 .btn { width:100%; padding:14px; border:none; border-radius:10px; font-size:15px; font-weight:600; cursor:pointer; margin-top:14px; }
 .btn-primary { background:#667eea; color:#fff; } .btn-danger { background:#e25555; color:#fff; }
 .back { display:block; text-align:center; margin-top:20px; color:#667eea; text-decoration:none; font-size:14px; }
+.codes-box { background:#fff8e6; border:1px solid #ffe3a3; border-radius:10px; padding:16px; margin-bottom:18px; }
+.codes-box strong { font-size:15px; } .codes-box p { color:#8a6d2f; font-size:13px; margin:6px 0 12px; }
+.codes { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.codes span { font-family:monospace; background:#fff; border:1px solid #ffe3a3; border-radius:6px; padding:8px; text-align:center; letter-spacing:2px; font-size:14px; }
 </style>
 </head>
 <body>
@@ -95,15 +113,33 @@ input[type=text] { width:100%; padding:13px; border:2px solid #e0e0e0; border-ra
   <h1>🔐 Zwei-Faktor-Authentifizierung</h1>
   <p class="sub">Konto: <?= htmlspecialchars($user['email']) ?></p>
 
+  <?php if ($setupRequired && !$totpEnabled): ?>
+    <div class="alert alert-error">Aus Sicherheitsgründen ist 2FA für Administratoren verpflichtend. Bitte jetzt einrichten.</div>
+  <?php endif; ?>
   <?php if ($error): ?><div class="alert alert-error"><?= htmlspecialchars($error) ?></div><?php endif; ?>
   <?php if ($success): ?><div class="alert alert-ok"><?= htmlspecialchars($success) ?></div><?php endif; ?>
+
+  <?php if (!empty($backupCodes)): ?>
+    <div class="codes-box">
+      <strong>🔑 Recovery-Codes</strong>
+      <p>Bewahren Sie diese sicher auf. Jeder Code funktioniert <em>einmal</em>, falls Sie keinen Zugriff auf Ihre App haben.</p>
+      <div class="codes">
+        <?php foreach ($backupCodes as $c): ?><span><?= htmlspecialchars($c) ?></span><?php endforeach; ?>
+      </div>
+    </div>
+  <?php endif; ?>
 
   <?php if (!$hasPassword): ?>
     <div class="status off">● Nicht verfügbar</div>
     <p class="sub">Ihr Konto meldet sich über Microsoft 365 an. 2FA wird dort in Ihrem Microsoft-Konto verwaltet.</p>
   <?php elseif ($totpEnabled): ?>
     <div class="status on">● Aktiv</div>
-    <p class="sub">Bei jeder Anmeldung wird zusätzlich ein Code aus Ihrer Authenticator-App abgefragt.</p>
+    <p class="sub">Bei jeder Anmeldung wird zusätzlich ein Code aus Ihrer Authenticator-App abgefragt.<br>
+       Verbleibende Recovery-Codes: <strong><?= (int)$auth->backupCodesRemaining($user) ?></strong></p>
+    <form method="post" style="margin-bottom:10px;">
+      <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+      <button type="submit" name="regen_codes" class="btn btn-secondary" style="background:#eef0ff;color:#5a63d6;width:100%;">Recovery-Codes neu erzeugen</button>
+    </form>
     <form method="post" onsubmit="return confirm('2FA wirklich deaktivieren?');">
       <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
       <button type="submit" name="disable_totp" class="btn btn-danger">2FA deaktivieren</button>

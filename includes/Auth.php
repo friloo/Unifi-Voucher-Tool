@@ -101,7 +101,13 @@ class Auth {
             unset($_SESSION['totp_pending_user_id'], $_SESSION['totp_pending_time']);
             return false;
         }
-        if (!Totp::verify($user['totp_secret'], $code)) {
+        // Entweder gueltiger TOTP-Code ODER ein Recovery-/Backup-Code
+        $ok = Totp::verify($user['totp_secret'], $code);
+        if (!$ok && $this->consumeBackupCode($user, $code)) {
+            $ok = true;
+            $this->writeAuditLog($user['id'], 'user_login_backup_code', 'user', $user['id'], 'Login per Recovery-Code');
+        }
+        if (!$ok) {
             $this->writeAuditLog($user['id'], 'user_login_2fa_failed', 'user', $user['id'], '2FA-Code falsch');
             return false;
         }
@@ -112,16 +118,76 @@ class Auth {
         return true;
     }
 
-    /** 2FA fuer einen Benutzer aktivieren (nach erfolgreicher Code-Verifikation). */
+    /**
+     * 2FA fuer einen Benutzer aktivieren und Recovery-Codes erzeugen.
+     * @return array Klartext-Recovery-Codes (nur hier einmalig verfuegbar)
+     */
     public function enableTotp($userId, $secret) {
-        $this->db->query("UPDATE users SET totp_secret = ?, totp_enabled = 1 WHERE id = ?", [$secret, $userId]);
+        $codes = $this->generateBackupCodes();
+        $hashes = array_map(function ($c) { return hash('sha256', $c); }, $codes);
+        $this->db->query(
+            "UPDATE users SET totp_secret = ?, totp_enabled = 1, totp_backup_codes = ? WHERE id = ?",
+            [$secret, json_encode($hashes), $userId]
+        );
         $this->writeAuditLog($userId, 'totp_enabled', 'user', $userId, '2FA aktiviert');
+        return $codes;
     }
 
     /** 2FA fuer einen Benutzer deaktivieren. */
     public function disableTotp($userId) {
-        $this->db->query("UPDATE users SET totp_secret = NULL, totp_enabled = 0 WHERE id = ?", [$userId]);
+        $this->db->query(
+            "UPDATE users SET totp_secret = NULL, totp_enabled = 0, totp_backup_codes = NULL WHERE id = ?",
+            [$userId]
+        );
         $this->writeAuditLog($userId, 'totp_disabled', 'user', $userId, '2FA deaktiviert');
+    }
+
+    /** Neue Recovery-Codes erzeugen (8 Stueck, Format XXXX-XXXX). */
+    public function generateBackupCodes($count = 8) {
+        $codes = [];
+        for ($i = 0; $i < $count; $i++) {
+            $raw = strtoupper(bin2hex(random_bytes(4))); // 8 Hex-Zeichen
+            $codes[] = substr($raw, 0, 4) . '-' . substr($raw, 4, 4);
+        }
+        return $codes;
+    }
+
+    /** Recovery-Codes neu erzeugen und speichern; gibt Klartext zurueck. */
+    public function regenerateBackupCodes($userId) {
+        $codes = $this->generateBackupCodes();
+        $hashes = array_map(function ($c) { return hash('sha256', $c); }, $codes);
+        $this->db->query("UPDATE users SET totp_backup_codes = ? WHERE id = ?", [json_encode($hashes), $userId]);
+        $this->writeAuditLog($userId, 'totp_backup_regenerated', 'user', $userId, 'Recovery-Codes neu erzeugt');
+        return $codes;
+    }
+
+    /** Anzahl noch nicht verbrauchter Recovery-Codes. */
+    public function backupCodesRemaining($user) {
+        $list = json_decode($user['totp_backup_codes'] ?? '[]', true);
+        return is_array($list) ? count($list) : 0;
+    }
+
+    /** Prueft & verbraucht einen Recovery-Code (konstante Zeit). */
+    private function consumeBackupCode($user, $code) {
+        $code = strtoupper(trim($code));
+        $list = json_decode($user['totp_backup_codes'] ?? '[]', true);
+        if (!is_array($list) || empty($list)) {
+            return false;
+        }
+        $hash = hash('sha256', $code);
+        $matched = false;
+        $remaining = [];
+        foreach ($list as $h) {
+            if (!$matched && hash_equals($h, $hash)) {
+                $matched = true; // diesen verbrauchen (nicht behalten)
+            } else {
+                $remaining[] = $h;
+            }
+        }
+        if ($matched) {
+            $this->db->query("UPDATE users SET totp_backup_codes = ? WHERE id = ?", [json_encode($remaining), $user['id']]);
+        }
+        return $matched;
     }
 
     public function writeAuditLog($userId, $action, $entityType = null, $entityId = null, $details = null) {
@@ -334,6 +400,20 @@ class Auth {
             header('Location: /index.php?error=access_denied');
             exit;
         }
+        // Optionale Richtlinie: 2FA fuer Admins erzwingen. Admins ohne aktives
+        // 2FA werden zur Einrichtung umgeleitet (security.php nutzt requireLogin,
+        // daher keine Endlosschleife).
+        try {
+            if ((string)$this->db->getSetting('enforce_2fa_admins', '0') === '1') {
+                $user = $this->getCurrentUser();
+                $script = basename($_SERVER['SCRIPT_NAME'] ?? '');
+                if ($user && !empty($user['password_hash']) && empty($user['totp_enabled'])
+                    && $script !== 'security.php') {
+                    header('Location: security.php?setup_required=1');
+                    exit;
+                }
+            }
+        } catch (\Exception $e) { /* Richtlinie nie blockierend */ }
     }
     
     // Login erforderlich

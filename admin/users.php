@@ -148,6 +148,14 @@ if (isset($_GET['toggle']) && isset($_GET['token'])) {
     } else { $error = __('error_csrf'); }
 }
 
+// 2FA eines Benutzers zurücksetzen (Admin-Hilfe bei verlorenem Authenticator)
+if (isset($_GET['reset_2fa']) && isset($_GET['token'])) {
+    if ($auth->validateCsrfToken($_GET['token'])) {
+        $auth->disableTotp((int)$_GET['reset_2fa']);
+        $success = '2FA des Benutzers wurde zurückgesetzt.';
+    } else { $error = __('error_csrf'); }
+}
+
 $users   = $db->fetchAll("SELECT * FROM users ORDER BY name");
 $sites   = $db->fetchAll("SELECT * FROM sites WHERE is_active=1 ORDER BY name");
 $userSiteAccess = [];
@@ -302,6 +310,13 @@ $currentPage = 'users';
                                    class="btn btn-warning btn-sm" title="<?= __('users_reset_pw') ?>"
                                    onclick="return confirm('Passwort-Reset-Link senden an <?= htmlspecialchars($user['email'], ENT_QUOTES) ?>?')">
                                     <i class="fas fa-key"></i>
+                                </a>
+                                <?php endif; ?>
+                                <?php if (!empty($user['totp_enabled'])): ?>
+                                <a href="?reset_2fa=<?= $user['id'] ?>&token=<?= $auth->getCsrfToken() ?>"
+                                   class="btn btn-secondary btn-sm" title="2FA zurücksetzen"
+                                   onclick="return confirm('2FA für <?= htmlspecialchars($user['email'], ENT_QUOTES) ?> zurücksetzen?')">
+                                    <i class="fas fa-user-shield"></i>
                                 </a>
                                 <?php endif; ?>
                                 <a href="?delete=<?= $user['id'] ?>&token=<?= $auth->getCsrfToken() ?>"

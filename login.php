@@ -169,13 +169,15 @@ try {
     <?php if ($show2fa): ?>
         <form method="post">
             <p style="color:var(--text-secondary,#666);font-size:14px;margin-bottom:18px;">
-                Bitte geben Sie den 6-stelligen Code aus Ihrer Authenticator-App ein.
+                Bitte geben Sie den 6-stelligen Code aus Ihrer Authenticator-App ein
+                – oder einen Ihrer Recovery-Codes.
             </p>
             <div class="form-group">
-                <label for="totp_code">Authentifizierungs-Code</label>
-                <input type="text" id="totp_code" name="totp_code" inputmode="numeric" pattern="[0-9]*"
-                       maxlength="6" autocomplete="one-time-code" required autofocus
-                       style="letter-spacing:6px;text-align:center;font-size:20px;">
+                <label for="totp_code">Code</label>
+                <input type="text" id="totp_code" name="totp_code" maxlength="9"
+                       autocomplete="one-time-code" required autofocus
+                       placeholder="123456 oder XXXX-XXXX"
+                       style="letter-spacing:3px;text-align:center;font-size:18px;">
             </div>
             <button type="submit" class="btn">Bestätigen</button>
         </form>

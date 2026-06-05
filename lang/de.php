@@ -7,6 +7,7 @@ return [
     'nav_vouchers'      => 'Live Vouchers',
     'nav_templates'     => 'Voucher-Profile',
     'nav_audit_log'     => 'Audit-Log',
+    'nav_reports'       => 'Reporting',
     'nav_settings'      => 'Einstellungen',
     'nav_api_keys'      => 'API-Schlüssel',
     'nav_security'      => 'Sicherheit (2FA)',

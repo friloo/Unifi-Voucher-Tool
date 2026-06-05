@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/Totp.php';
+require_once __DIR__ . '/Notifier.php';
 
 class Auth {
     private $db;
@@ -71,6 +72,7 @@ class Auth {
                 return 'totp_required';
             }
 
+            $this->notifyIfNewIp($user, $ip);
             $this->setUserSession($user);
             $this->updateLastLogin($user['id']);
             $this->writeAuditLog($user['id'], 'user_login', 'user', $user['id'], 'Login erfolgreich');
@@ -79,6 +81,19 @@ class Auth {
 
         $this->recordLoginAttempt($ip, $email);
         return false;
+    }
+
+    /** Webhook bei Login von einer für diesen Nutzer bisher unbekannten IP. */
+    private function notifyIfNewIp($user, $ip) {
+        try {
+            $seen = $this->db->fetchOne(
+                "SELECT 1 FROM audit_log WHERE user_id = ? AND action = 'user_login' AND ip_address = ? LIMIT 1",
+                [$user['id'], $ip]
+            );
+            if (!$seen) {
+                Notifier::loginNewIp($user['email'], $ip);
+            }
+        } catch (\Exception $e) { /* nie blockierend */ }
     }
 
     /** Liegt ein Login vor, der noch auf den 2FA-Code wartet? */
@@ -112,6 +127,7 @@ class Auth {
             return false;
         }
         unset($_SESSION['totp_pending_user_id'], $_SESSION['totp_pending_time']);
+        $this->notifyIfNewIp($user, $this->clientIp());
         $this->setUserSession($user);
         $this->updateLastLogin($user['id']);
         $this->writeAuditLog($user['id'], 'user_login', 'user', $user['id'], 'Login erfolgreich (2FA)');

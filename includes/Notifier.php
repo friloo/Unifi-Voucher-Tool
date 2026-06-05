@@ -41,6 +41,24 @@ class Notifier {
         curl_close($ch);
     }
 
+    /** Controller nicht erreichbar (z.B. beim Sync). */
+    public static function controllerUnreachable($siteName, $detail = '') {
+        self::send("⚠️ UniFi-Controller für \"{$siteName}\" nicht erreichbar." . ($detail ? " ({$detail})" : ''),
+            ['type' => 'controller_unreachable', 'site' => $siteName, 'detail' => $detail]);
+    }
+
+    /** Anmeldung von einer bisher unbekannten IP. */
+    public static function loginNewIp($email, $ip) {
+        self::send("🔐 Neue Anmeldung für {$email} von IP {$ip}.",
+            ['type' => 'login_new_ip', 'email' => $email, 'ip' => $ip]);
+    }
+
+    /** Update verfügbar. */
+    public static function updateAvailable($sha) {
+        self::send("⬆️ Update verfügbar (" . substr((string)$sha, 0, 7) . "). Siehe Administration → System-Update.",
+            ['type' => 'update_available', 'sha' => $sha]);
+    }
+
     /** Bequemer Helfer für erstellte Voucher. */
     public static function voucherCreated($count, $siteName, $byUser = null) {
         $who = $byUser ? " von {$byUser}" : '';

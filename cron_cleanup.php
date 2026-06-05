@@ -23,6 +23,7 @@ if (!$isCli) {
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/includes/Database.php';
+require_once __DIR__ . '/includes/Notifier.php';
 
 function out($data, $isCli) {
     if ($isCli) {
@@ -100,6 +101,24 @@ try {
         );
         $deleted['reset_tokens'] = $stmt->rowCount();
     } catch (Exception $e) { /* Tabelle evtl. nicht vorhanden */ }
+
+    // Optionaler täglicher Update-Check mit Webhook-Hinweis (Updater isoliert,
+    // daher nur falls vorhanden und nur einmal pro Tag).
+    $bootstrap = __DIR__ . '/updater/bootstrap.php';
+    if (is_file($bootstrap)) {
+        $lastCheck = $db->getSetting('last_update_check', '');
+        if (!$lastCheck || strtotime($lastCheck) < strtotime('-23 hours')) {
+            try {
+                require_once $bootstrap;
+                $mgr = \Updater\UpdaterFactory::create($db, null);
+                $res = $mgr->checkForUpdates();
+                if (!empty($res['has_update'])) {
+                    Notifier::updateAvailable($res['latest_sha'] ?? '');
+                }
+            } catch (\Throwable $e) { /* Update-Check nie blockierend */ }
+            $db->setSetting('last_update_check', date('Y-m-d H:i:s'));
+        }
+    }
 
     $db->query(
         "INSERT INTO settings (setting_key, setting_value) VALUES ('last_cleanup', NOW())

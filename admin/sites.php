@@ -1,6 +1,7 @@
 <?php
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
 
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../includes/Database.php';
@@ -44,7 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_site'])) {
                 // Mit neuem Passwort aktualisieren
                 $db->execute(
                     "UPDATE sites SET name = ?, site_id = ?, unifi_controller_url = ?, unifi_username = ?, unifi_password = ?, public_access = ? WHERE id = ?",
-                    [$name, $siteIdStr, $controllerUrl, $username, $password, $publicAccess, $siteId]
+                    [$name, $siteIdStr, $controllerUrl, $username, Crypto::encrypt($password), $publicAccess, $siteId]
                 );
             } else {
                 // Ohne Passwort-Änderung
@@ -88,7 +89,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_site'])) {
             $db->execute(
                 "INSERT INTO sites (name, site_id, unifi_controller_url, unifi_username, unifi_password, public_access) 
                  VALUES (?, ?, ?, ?, ?, ?)",
-                [$name, $siteId, $controllerUrl, $username, $password, $publicAccess]
+                [$name, $siteId, $controllerUrl, $username, Crypto::encrypt($password), $publicAccess]
             );
             
             $success = 'Site erfolgreich hinzugefügt!';

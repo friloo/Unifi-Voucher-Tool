@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/Crypto.php';
+
 class UniFiController {
     private $controllerUrl;
     private $username;
@@ -169,16 +171,44 @@ class UniFiController {
             throw new Exception("Voucher konnte nicht erstellt werden");
         }
         
-        // Voucher-Code abrufen
+        // Voucher-Code abrufen. WICHTIG: getVouchers() liefert die Voucher
+        // unsortiert zurueck – ein blindes reset() kann bei parallelen
+        // Erstellungen den falschen (fremden) Code liefern. Daher gezielt
+        // nach dem soeben erstellten Voucher suchen: gleiche note + neueste
+        // create_time.
         $vouchers = $this->getVouchers();
-        
+
         if (empty($vouchers)) {
             throw new Exception("Voucher-Code konnte nicht abgerufen werden");
         }
-        
-        // Neuesten Voucher zurückgeben
-        $latestVoucher = reset($vouchers);
-        
+
+        $latestVoucher = null;
+        foreach ($vouchers as $voucher) {
+            // Nur Voucher mit passender Notiz beruecksichtigen
+            if (($voucher['note'] ?? null) !== $voucherName) {
+                continue;
+            }
+            if ($latestVoucher === null
+                || ($voucher['create_time'] ?? 0) > ($latestVoucher['create_time'] ?? 0)) {
+                $latestVoucher = $voucher;
+            }
+        }
+
+        // Fallback: falls keine note-Uebereinstimmung (z.B. Sonderzeichen),
+        // den global neuesten Voucher nehmen.
+        if ($latestVoucher === null) {
+            foreach ($vouchers as $voucher) {
+                if ($latestVoucher === null
+                    || ($voucher['create_time'] ?? 0) > ($latestVoucher['create_time'] ?? 0)) {
+                    $latestVoucher = $voucher;
+                }
+            }
+        }
+
+        if ($latestVoucher === null || empty($latestVoucher['code'])) {
+            throw new Exception("Voucher-Code konnte nicht abgerufen werden");
+        }
+
         return [
             'code' => $latestVoucher['code'],
             'formatted_code' => $this->formatVoucherCode($latestVoucher['code']),

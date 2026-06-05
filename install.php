@@ -1,9 +1,27 @@
 <?php
 session_start();
 
-// Prüfen ob bereits installiert
-if (file_exists(__DIR__ . '/config.php') && !isset($_GET['reinstall'])) {
-    die('System bereits installiert. Wenn Sie neu installieren möchten, löschen Sie die config.php oder rufen Sie install.php?reinstall=1 auf.');
+// Prüfen ob bereits installiert.
+// Wenn eine config.php existiert, darf der Installer NICHT mehr ohne Weiteres
+// erreichbar sein – sonst koennte jeder die Konfiguration ueberschreiben und
+// einen neuen Admin anlegen. Reinstall ist nur fuer angemeldete Admins erlaubt.
+if (file_exists(__DIR__ . '/config.php')) {
+    if (!isset($_GET['reinstall'])) {
+        die('System bereits installiert. Eine Neuinstallation ist nur fuer angemeldete Administratoren ueber install.php?reinstall=1 moeglich.');
+    }
+
+    // Reinstall angefordert -> Admin-Authentifizierung erzwingen
+    require_once __DIR__ . '/config.php';
+    require_once __DIR__ . '/includes/Database.php';
+    require_once __DIR__ . '/includes/Auth.php';
+    try {
+        $reinstallAuth = new Auth();
+        if (!$reinstallAuth->isAdmin()) {
+            die('Neuinstallation nicht erlaubt: Bitte zuerst als Administrator <a href="login.php">anmelden</a>.');
+        }
+    } catch (Exception $e) {
+        die('Neuinstallation nicht moeglich (Konfigurationsfehler).');
+    }
 }
 
 $step = isset($_POST['step']) ? (int)$_POST['step'] : 1;
@@ -130,6 +148,9 @@ if ($step === 5 && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $configContent .= "define('DB_NAME', '{$db['name']}');\n";
         $configContent .= "define('DB_USER', '{$db['user']}');\n";
         $configContent .= "define('DB_PASS', '" . addslashes($db['pass']) . "');\n\n";
+        $configContent .= "// Anwendungs-Schluessel fuer Verschluesselung-at-rest (z.B. UniFi-Passwoerter)\n";
+        $configContent .= "// NICHT aendern, sonst koennen bestehende verschluesselte Werte nicht mehr gelesen werden.\n";
+        $configContent .= "define('APP_KEY', '" . base64_encode(random_bytes(32)) . "');\n\n";
         $configContent .= "// Sitzungs-Einstellungen\n";
         $configContent .= "define('SESSION_LIFETIME', 3600); // 1 Stunde\n\n";
         $configContent .= "// Zeitzone\n";
@@ -140,7 +161,7 @@ if ($step === 5 && $_SERVER['REQUEST_METHOD'] === 'POST') {
         // .htaccess erstellen (ohne Rewrite Rules die Probleme machen)
         $htaccess = "# UniFi Voucher System\n\n";
         $htaccess .= "# Security\n";
-        $htaccess .= "<FilesMatch \"(config\\.php|database\\.sql|install\\.php|test\\.php|\\.md)$\">\n";
+        $htaccess .= "<FilesMatch \"(config\\.php|database\\.sql|install\\.php|test\\.php|m365_debug\\.php|\\.md)$\">\n";
         $htaccess .= "    Order Allow,Deny\n";
         $htaccess .= "    Deny from all\n";
         $htaccess .= "</FilesMatch>\n\n";

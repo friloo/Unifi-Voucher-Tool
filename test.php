@@ -1,6 +1,17 @@
 <?php
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
+
+// Diagnose-Seite nur fuer angemeldete Admins zugaenglich (verhindert Info-Leak)
+if (file_exists(__DIR__ . '/config.php')) {
+    require_once __DIR__ . '/config.php';
+    require_once __DIR__ . '/includes/Database.php';
+    require_once __DIR__ . '/includes/Auth.php';
+    require_once __DIR__ . '/includes/Crypto.php';
+    $auth = new Auth();
+    $auth->requireAdmin();
+}
 
 echo "<h1>System Test</h1>";
 
@@ -111,7 +122,7 @@ try {
             CURLOPT_POST           => true,
             CURLOPT_POSTFIELDS     => json_encode([
                 'username' => $site['unifi_username'],
-                'password' => $site['unifi_password']
+                'password' => Crypto::decrypt($site['unifi_password'])
             ]),
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_SSL_VERIFYPEER => false,

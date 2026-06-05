@@ -159,7 +159,19 @@ class Auth {
     
     // Prüfen ob eingeloggt
     public function isLoggedIn() {
-        return isset($_SESSION['user_id']) && isset($_SESSION['login_time']);
+        if (!isset($_SESSION['user_id']) || !isset($_SESSION['login_time'])) {
+            return false;
+        }
+
+        // Absolutes Session-Timeout durchsetzen (SESSION_LIFETIME aus config.php).
+        // Bisher wurde die Lebensdauer nie geprueft – Sessions liefen unbegrenzt.
+        $lifetime = defined('SESSION_LIFETIME') ? (int)SESSION_LIFETIME : 3600;
+        if ($lifetime > 0 && (time() - (int)$_SESSION['login_time']) > $lifetime) {
+            $this->logout();
+            return false;
+        }
+
+        return true;
     }
     
     // Prüfen ob Admin

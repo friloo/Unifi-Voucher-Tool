@@ -1,9 +1,15 @@
 <?php
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/includes/Database.php';
+require_once __DIR__ . '/includes/Auth.php';
+
+// Diagnose-Seite nur fuer angemeldete Admins (leakt sonst M365-Konfiguration)
+$auth = new Auth();
+$auth->requireAdmin();
 
 $db = Database::getInstance();
 
@@ -78,4 +84,22 @@ $redirectUri = $protocol . '://' . $host . $scriptPath . '/m365_callback.php';
         <h2>1. Konfiguration Status</h2>
         <p>Client ID: <?= !empty($clientId) ? '<span class="ok">✓ Gesetzt</span>' : '<span class="error">✗ Fehlt</span>' ?></p>
         <p>Client Secret: <?= !empty($clientSecret) ? '<span class="ok">✓ Gesetzt</span>' : '<span class="error">✗ Fehlt</span>' ?></p>
-        <p>Tenant ID: <?= !empty($tenant
+        <p>Tenant ID: <?= !empty($tenantId) ? '<span class="ok">✓ Gesetzt</span>' : '<span class="error">✗ Fehlt</span>' ?></p>
+    </div>
+
+    <div class="section">
+        <h2>2. Redirect URI</h2>
+        <p>Diese URI muss exakt in der Azure-App-Registrierung hinterlegt sein:</p>
+        <div class="url"><?= htmlspecialchars($redirectUri) ?></div>
+    </div>
+
+    <div class="section">
+        <h2>3. Hinweise</h2>
+        <ul>
+            <li>Alle drei Werte (Client ID, Client Secret, Tenant ID) müssen gesetzt sein.</li>
+            <li>Die Redirect URI in Azure AD muss exakt mit der obigen übereinstimmen.</li>
+            <li>Benötigte API-Berechtigungen: <code>openid</code>, <code>profile</code>, <code>email</code>, <code>User.Read</code>.</li>
+        </ul>
+    </div>
+</body>
+</html>

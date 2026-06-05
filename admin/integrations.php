@@ -24,6 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
         $error = __('error_csrf');
     } else {
         $db->setSetting('enforce_2fa_admins',   isset($_POST['enforce_2fa_admins']) ? '1' : '0');
+        $db->setSetting('user_daily_voucher_limit', max(0, (int)($_POST['user_daily_voucher_limit'] ?? 0)));
         $db->setSetting('trusted_proxy',        trim($_POST['trusted_proxy'] ?? ''));
         $db->setSetting('webhook_enabled',      isset($_POST['webhook_enabled']) ? '1' : '0');
         $db->setSetting('webhook_url',          trim($_POST['webhook_url'] ?? ''));
@@ -41,6 +42,7 @@ if (isset($_GET['test_webhook']) && isset($_GET['token']) && $auth->validateCsrf
 }
 
 $enforce2fa        = $db->getSetting('enforce_2fa_admins', '0') === '1';
+$dailyLimit        = (int)$db->getSetting('user_daily_voucher_limit', 0);
 $trustedProxy      = $db->getSetting('trusted_proxy', '');
 $webhookEnabled    = $db->getSetting('webhook_enabled', '0') === '1';
 $webhookUrl        = $db->getSetting('webhook_url', '');
@@ -86,6 +88,8 @@ label { display:block; font-size:14px; color:var(--text-secondary); margin:14px 
     <h2>Sicherheitsrichtlinie</h2>
     <p class="muted">Erzwingt Zwei-Faktor-Authentifizierung für alle Administrator-Konten (lokale Accounts). Admins ohne 2FA werden bei der nächsten Aktion zur Einrichtung geleitet.</p>
     <label class="chk"><input type="checkbox" name="enforce_2fa_admins" <?= $enforce2fa ? 'checked' : '' ?>> 2FA für Administratoren verpflichtend</label>
+    <label>Tageslimit Voucher pro Nicht-Admin-Benutzer (0 = unbegrenzt)</label>
+    <input class="input" type="number" min="0" name="user_daily_voucher_limit" value="<?= $dailyLimit ?>" style="max-width:200px;">
 </div>
 
 <div class="card">

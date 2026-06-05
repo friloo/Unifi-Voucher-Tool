@@ -1,8 +1,10 @@
 # UniFi Voucher Management System – Container-Image
 FROM php:8.2-apache
 
-# PHP-Extensions
-RUN docker-php-ext-install pdo pdo_mysql \
+# System-Tools (curl für Healthcheck) + PHP-Extensions
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && docker-php-ext-install pdo pdo_mysql \
     && a2enmod rewrite headers
 
 # Empfohlene PHP-Einstellungen
@@ -25,5 +27,10 @@ COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 EXPOSE 80
+
+# Apache-Worker laufen als www-data (Privilege-Drop durch den Master).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD curl -fsS http://localhost/health.php || exit 1
+
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["apache2-foreground"]

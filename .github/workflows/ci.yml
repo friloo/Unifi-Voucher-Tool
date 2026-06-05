@@ -32,3 +32,26 @@ jobs:
       - name: Validate JSON language/migration assets
         run: |
           php -r 'foreach (glob("lang/*.php") as $f) { $a = require $f; if (!is_array($a)) { fwrite(STDERR, "Bad lang file: $f\n"); exit(1);} } echo "lang OK\n";'
+
+  test:
+    name: Unit Tests & Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          extensions: pdo, pdo_mysql, curl, mbstring, json
+          tools: composer
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress
+
+      - name: PHPUnit
+        run: vendor/bin/phpunit
+
+      - name: PHPStan
+        run: vendor/bin/phpstan analyse --no-progress

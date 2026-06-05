@@ -46,6 +46,26 @@ function isVoucherRateLimited() {
     return false;
 }
 
+/**
+ * Optionales Tageslimit pro (Nicht-Admin-)Benutzer (Setting
+ * user_daily_voucher_limit, 0 = aus). Verhindert übermäßige Erstellung.
+ */
+function userDailyLimitExceeded($db, $auth, $additional = 1) {
+    if (!$auth->isLoggedIn() || $auth->isAdmin()) {
+        return false;
+    }
+    $limit = (int)$db->getSetting('user_daily_voucher_limit', 0);
+    if ($limit <= 0) {
+        return false;
+    }
+    $uid = $_SESSION['user_id'] ?? 0;
+    $today = (int)($db->fetchOne(
+        "SELECT COUNT(*) c FROM vouchers WHERE user_id=? AND DATE(created_at)=CURDATE()",
+        [$uid]
+    )['c'] ?? 0);
+    return ($today + $additional) > $limit;
+}
+
 $appTitle          = $db->getSetting('app_title', 'UniFi Voucher System');
 $logoUrl           = $db->getSetting('logo_url', '');
 $instructionHeader = $db->getSetting('instruction_header', '');
@@ -146,6 +166,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_voucher'])) {
             if ($sendEmail && !filter_var($recipientEmail, FILTER_VALIDATE_EMAIL)) throw new Exception(__('error_email_invalid'));
 
             if ($auth->isLoggedIn() && !$auth->hasAccessToSite($siteId)) throw new Exception(__('error_site_no_perm'));
+            if (userDailyLimitExceeded($db, $auth, 1)) throw new Exception('Tageslimit für Voucher erreicht.');
 
             $site = $db->fetchOne("SELECT * FROM sites WHERE id = ? AND is_active = 1", [$siteId]);
             if (!$site) throw new Exception(__('error_site_not_found'));
@@ -194,6 +215,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_bulk'])) {
             if ($maxUses < 1 || $maxUses > $maxUsesLimit) throw new Exception(__('error_devices_range', ['max' => $maxUsesLimit]));
             if ($siteId <= 0) throw new Exception(__('error_site_req'));
             if ($auth->isLoggedIn() && !$auth->hasAccessToSite($siteId)) throw new Exception(__('error_site_no_perm'));
+            if (userDailyLimitExceeded($db, $auth, $bulkCount)) throw new Exception('Tageslimit für Voucher erreicht.');
 
             $site = $db->fetchOne("SELECT * FROM sites WHERE id = ? AND is_active = 1", [$siteId]);
             if (!$site) throw new Exception(__('error_site_not_found'));

@@ -19,8 +19,21 @@ I18n::init();
 
 $error   = '';
 $success = '';
+$show2fa = false;
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['totp_code'])) {
+    // Zweiter Login-Schritt: 2FA-Code
+    try {
+        if ($auth->verifyTotpLogin(trim($_POST['totp_code']))) {
+            header('Location: index.php');
+            exit;
+        }
+        $error   = 'Code ungültig oder abgelaufen. Bitte erneut versuchen.';
+        $show2fa = $auth->isTotpPending();
+    } catch (Exception $e) {
+        $error = 'Login-Fehler: ' . $e->getMessage();
+    }
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $email    = trim($_POST['email'] ?? '');
         $password = $_POST['password'] ?? '';
@@ -32,6 +45,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($result === true) {
                 header('Location: index.php');
                 exit;
+            } elseif ($result === 'totp_required') {
+                $show2fa = true;
             } elseif ($result === 'rate_limited') {
                 $error = __('login_error_rate');
             } else {
@@ -41,6 +56,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } catch (Exception $e) {
         $error = 'Login-Fehler: ' . $e->getMessage();
     }
+}
+
+// Direkter Aufruf mit ?2fa=1 (z.B. nach Redirect) und noch ausstehendem Login
+if (!$show2fa && isset($_GET['2fa']) && $auth->isTotpPending()) {
+    $show2fa = true;
 }
 
 try {
@@ -146,7 +166,21 @@ try {
         <div class="alert alert-success"><?= htmlspecialchars($success) ?></div>
     <?php endif; ?>
 
-    <?php if ($m365Enabled && !$showLocalLogin): ?>
+    <?php if ($show2fa): ?>
+        <form method="post">
+            <p style="color:var(--text-secondary,#666);font-size:14px;margin-bottom:18px;">
+                Bitte geben Sie den 6-stelligen Code aus Ihrer Authenticator-App ein.
+            </p>
+            <div class="form-group">
+                <label for="totp_code">Authentifizierungs-Code</label>
+                <input type="text" id="totp_code" name="totp_code" inputmode="numeric" pattern="[0-9]*"
+                       maxlength="6" autocomplete="one-time-code" required autofocus
+                       style="letter-spacing:6px;text-align:center;font-size:20px;">
+            </div>
+            <button type="submit" class="btn">Bestätigen</button>
+        </form>
+        <a href="login.php" class="local-login-link">Abbrechen</a>
+    <?php elseif ($m365Enabled && !$showLocalLogin): ?>
         <a href="<?= htmlspecialchars($m365LoginUrl) ?>" class="btn-microsoft">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 23 23">
                 <path fill="#f35325" d="M1 1h10v10H1z"/>

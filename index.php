@@ -92,7 +92,7 @@ if ($auth->isLoggedIn()) {
 $autoSelectSite = (count($sites) === 1) ? $sites[0]['id'] : 0;
 
 // Helper: create one voucher and save to DB
-function doCreateVoucher($db, $site, $voucherName, $maxUses, $expireMinutes, $userId) {
+function doCreateVoucher($db, $site, $voucherName, $maxUses, $expireMinutes, $userId, $qos = []) {
     $datum          = date('Y-m-d');
     $fullName       = $datum . '_' . $voucherName;
     $controller     = new UniFiController(
@@ -101,7 +101,7 @@ function doCreateVoucher($db, $site, $voucherName, $maxUses, $expireMinutes, $us
         Crypto::decrypt($site['unifi_password']),
         $site['site_id']
     );
-    $voucher = $controller->createVoucher($fullName, $maxUses, $expireMinutes);
+    $voucher = $controller->createVoucher($fullName, $maxUses, $expireMinutes, $qos);
     if (!is_array($voucher) || empty($voucher['formatted_code'])) {
         throw new Exception(__('error_voucher_invalid'));
     }
@@ -150,7 +150,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_voucher'])) {
             if (!$site) throw new Exception(__('error_site_not_found'));
 
             $userId  = $auth->isLoggedIn() ? ($_SESSION['user_id'] ?? null) : null;
-            $voucherData = doCreateVoucher($db, $site, $voucherName, $maxUses, $expireMinutes, $userId);
+            $qos = [
+                'down'     => max(0, (int)($_POST['qos_down'] ?? 0)),
+                'up'       => max(0, (int)($_POST['qos_up'] ?? 0)),
+                'quota_mb' => max(0, (int)($_POST['qos_quota'] ?? 0)),
+            ];
+            $voucherData = doCreateVoucher($db, $site, $voucherName, $maxUses, $expireMinutes, $userId, $qos);
             $voucherCode  = $voucherData['code'];
             $voucherCreated = true;
 
@@ -192,9 +197,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_bulk'])) {
             if (!$site) throw new Exception(__('error_site_not_found'));
 
             $userId = $auth->isLoggedIn() ? ($_SESSION['user_id'] ?? null) : null;
+            $qos = [
+                'down'     => max(0, (int)($_POST['qos_down'] ?? 0)),
+                'up'       => max(0, (int)($_POST['qos_up'] ?? 0)),
+                'quota_mb' => max(0, (int)($_POST['qos_quota'] ?? 0)),
+            ];
 
             for ($i = 0; $i < $bulkCount; $i++) {
-                $bulkVouchers[] = doCreateVoucher($db, $site, $voucherName . '_' . ($i + 1), $maxUses, $expireMinutes, $userId);
+                $bulkVouchers[] = doCreateVoucher($db, $site, $voucherName . '_' . ($i + 1), $maxUses, $expireMinutes, $userId, $qos);
             }
 
             $bulkCreated = true;
@@ -452,6 +462,9 @@ function buildPrintCard($template, $data, $instructionHeader, $instructionText, 
                 <option value="<?= (int)$tpl['id'] ?>"
                         data-max-uses="<?= (int)$tpl['max_uses'] ?>"
                         data-expire="<?= (int)$tpl['expire_minutes'] ?>"
+                        data-qos-down="<?= (int)($tpl['qos_rate_max_down'] ?? 0) ?>"
+                        data-qos-up="<?= (int)($tpl['qos_rate_max_up'] ?? 0) ?>"
+                        data-qos-quota="<?= (int)($tpl['qos_usage_quota'] ?? 0) ?>"
                         data-desc="<?= htmlspecialchars($tpl['description'] ?? '') ?>">
                     <?= htmlspecialchars($tpl['name']) ?> –
                     <?= (int)$tpl['max_uses'] ?> <?= __('label_devices') ?>,
@@ -469,6 +482,9 @@ function buildPrintCard($template, $data, $instructionHeader, $instructionText, 
                 <input type="hidden" name="create_voucher" value="1">
                 <input type="hidden" name="expire_minutes" id="expire_minutes" value="<?= $defaultExpire ?>">
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($auth->getCsrfToken()) ?>">
+                <input type="hidden" name="qos_down" class="qos-down-field" value="0">
+                <input type="hidden" name="qos_up" class="qos-up-field" value="0">
+                <input type="hidden" name="qos_quota" class="qos-quota-field" value="0">
 
                 <div class="form-group">
                     <label for="voucher_name"><?= __('voucher_name_label') ?></label>
@@ -526,6 +542,9 @@ function buildPrintCard($template, $data, $instructionHeader, $instructionText, 
                 <input type="hidden" name="create_bulk" value="1">
                 <input type="hidden" name="expire_minutes" id="bulk_expire_minutes" value="<?= $defaultExpire ?>">
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($auth->getCsrfToken()) ?>">
+                <input type="hidden" name="qos_down" class="qos-down-field" value="0">
+                <input type="hidden" name="qos_up" class="qos-up-field" value="0">
+                <input type="hidden" name="qos_quota" class="qos-quota-field" value="0">
 
                 <div class="form-group">
                     <label for="bulk_count"><?= __('bulk_quantity') ?></label>
@@ -630,6 +649,13 @@ function buildPrintCard($template, $data, $instructionHeader, $instructionText, 
         if (muEl) muEl.value = maxUses;
         const bmuEl = document.getElementById('bulk_max_uses');
         if (bmuEl) bmuEl.value = maxUses;
+
+        const qosDown  = opt.value ? (parseInt(opt.dataset.qosDown)  || 0) : 0;
+        const qosUp    = opt.value ? (parseInt(opt.dataset.qosUp)    || 0) : 0;
+        const qosQuota = opt.value ? (parseInt(opt.dataset.qosQuota) || 0) : 0;
+        document.querySelectorAll('.qos-down-field').forEach(el => el.value = qosDown);
+        document.querySelectorAll('.qos-up-field').forEach(el => el.value = qosUp);
+        document.querySelectorAll('.qos-quota-field').forEach(el => el.value = qosQuota);
 
         const descEl = document.getElementById('template_desc');
         if (descEl) descEl.textContent = opt.dataset.desc || '';

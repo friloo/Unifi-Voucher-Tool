@@ -156,7 +156,8 @@ class UniFiController {
     }
     
     // Voucher erstellen
-    public function createVoucher($voucherName, $maxUses, $expireMinutes = 480) {
+    // $options: optionale QoS-Limits ['down' => kbps, 'up' => kbps, 'quota_mb' => MB]
+    public function createVoucher($voucherName, $maxUses, $expireMinutes = 480, $options = []) {
         $data = [
             'cmd' => 'create-voucher',
             'expire' => (int)$expireMinutes,
@@ -164,7 +165,18 @@ class UniFiController {
             'note' => $voucherName,
             'quota' => (int)$maxUses
         ];
-        
+
+        // Bandbreiten-/Datenlimits (UniFi QoS) optional setzen
+        $down  = isset($options['down'])     ? (int)$options['down']     : 0;
+        $up    = isset($options['up'])       ? (int)$options['up']       : 0;
+        $bytes = isset($options['quota_mb']) ? (int)$options['quota_mb'] : 0;
+        if ($down > 0 || $up > 0 || $bytes > 0) {
+            $data['qos_overwrite'] = true;
+            if ($down > 0)  $data['down']  = $down;   // kbit/s
+            if ($up > 0)    $data['up']    = $up;     // kbit/s
+            if ($bytes > 0) $data['bytes'] = $bytes;  // Megabyte
+        }
+
         $response = $this->apiRequest("/proxy/network/api/s/{$this->siteId}/cmd/hotspot", $data);
 
         if (!isset($response['data'][0]['create_time'])) {

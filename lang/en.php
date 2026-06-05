@@ -8,6 +8,7 @@ return [
     'nav_templates'     => 'Voucher Profiles',
     'nav_audit_log'     => 'Audit Log',
     'nav_settings'      => 'Settings',
+    'nav_security'      => 'Security (2FA)',
     'nav_update'        => 'System Update',
     'nav_back'          => 'Back to Home',
     'nav_administration'=> 'Administration',

@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__ . '/Totp.php';
+
 class Auth {
     private $db;
     
@@ -21,9 +23,34 @@ class Auth {
         }
     }
     
+    /**
+     * Ermittelt die echte Client-IP. Hinter einem konfigurierten Trusted-Proxy
+     * (Setting `trusted_proxy`, kommaseparierte IP-Liste) wird die erste IP aus
+     * X-Forwarded-For verwendet, sonst REMOTE_ADDR. Verhindert, dass ein
+     * Reverse-Proxy alle Clients als dieselbe IP erscheinen laesst (Rate-Limit).
+     */
+    public function clientIp() {
+        $remote = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        try {
+            $trusted = (string)$this->db->getSetting('trusted_proxy', '');
+        } catch (\Exception $e) {
+            $trusted = '';
+        }
+        if ($trusted === '' || empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+            return $remote;
+        }
+        $trustedList = array_filter(array_map('trim', explode(',', $trusted)));
+        if (!in_array($remote, $trustedList, true)) {
+            return $remote; // Anfrage kam nicht vom Trusted-Proxy -> XFF ignorieren
+        }
+        $parts = array_filter(array_map('trim', explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'])));
+        $client = $parts[0] ?? $remote;
+        return filter_var($client, FILTER_VALIDATE_IP) ? $client : $remote;
+    }
+
     // Benutzer einloggen
     public function login($email, $password) {
-        $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+        $ip = $this->clientIp();
 
         if ($this->isRateLimited($ip, $email)) {
             return 'rate_limited';
@@ -36,6 +63,14 @@ class Auth {
 
         if ($user && password_verify($password, $user['password_hash'])) {
             $this->clearLoginAttempts($ip, $email);
+
+            // 2FA aktiv? Dann Login zunaechst nur "vormerken" und Code anfordern.
+            if (!empty($user['totp_enabled']) && !empty($user['totp_secret'])) {
+                $_SESSION['totp_pending_user_id'] = $user['id'];
+                $_SESSION['totp_pending_time'] = time();
+                return 'totp_required';
+            }
+
             $this->setUserSession($user);
             $this->updateLastLogin($user['id']);
             $this->writeAuditLog($user['id'], 'user_login', 'user', $user['id'], 'Login erfolgreich');
@@ -46,11 +81,54 @@ class Auth {
         return false;
     }
 
+    /** Liegt ein Login vor, der noch auf den 2FA-Code wartet? */
+    public function isTotpPending() {
+        return isset($_SESSION['totp_pending_user_id'])
+            && isset($_SESSION['totp_pending_time'])
+            && (time() - (int)$_SESSION['totp_pending_time']) < 300; // 5 Min Fenster
+    }
+
+    /** Schliesst einen 2FA-Login mit dem eingegebenen Code ab. */
+    public function verifyTotpLogin($code) {
+        if (!$this->isTotpPending()) {
+            return false;
+        }
+        $user = $this->db->fetchOne(
+            "SELECT * FROM users WHERE id = ? AND is_active = 1",
+            [$_SESSION['totp_pending_user_id']]
+        );
+        if (!$user || empty($user['totp_secret'])) {
+            unset($_SESSION['totp_pending_user_id'], $_SESSION['totp_pending_time']);
+            return false;
+        }
+        if (!Totp::verify($user['totp_secret'], $code)) {
+            $this->writeAuditLog($user['id'], 'user_login_2fa_failed', 'user', $user['id'], '2FA-Code falsch');
+            return false;
+        }
+        unset($_SESSION['totp_pending_user_id'], $_SESSION['totp_pending_time']);
+        $this->setUserSession($user);
+        $this->updateLastLogin($user['id']);
+        $this->writeAuditLog($user['id'], 'user_login', 'user', $user['id'], 'Login erfolgreich (2FA)');
+        return true;
+    }
+
+    /** 2FA fuer einen Benutzer aktivieren (nach erfolgreicher Code-Verifikation). */
+    public function enableTotp($userId, $secret) {
+        $this->db->query("UPDATE users SET totp_secret = ?, totp_enabled = 1 WHERE id = ?", [$secret, $userId]);
+        $this->writeAuditLog($userId, 'totp_enabled', 'user', $userId, '2FA aktiviert');
+    }
+
+    /** 2FA fuer einen Benutzer deaktivieren. */
+    public function disableTotp($userId) {
+        $this->db->query("UPDATE users SET totp_secret = NULL, totp_enabled = 0 WHERE id = ?", [$userId]);
+        $this->writeAuditLog($userId, 'totp_disabled', 'user', $userId, '2FA deaktiviert');
+    }
+
     public function writeAuditLog($userId, $action, $entityType = null, $entityId = null, $details = null) {
         try {
             $this->db->execute(
                 "INSERT INTO audit_log (user_id, action, entity_type, entity_id, details, ip_address) VALUES (?, ?, ?, ?, ?, ?)",
-                [$userId, $action, $entityType, $entityId !== null ? (string)$entityId : null, $details, $_SERVER['REMOTE_ADDR'] ?? '']
+                [$userId, $action, $entityType, $entityId !== null ? (string)$entityId : null, $details, $this->clientIp()]
             );
         } catch (\Exception $e) {
             // audit_log table may not exist on old installs

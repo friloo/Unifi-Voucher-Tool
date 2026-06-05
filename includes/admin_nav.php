@@ -113,6 +113,9 @@ $lang        = I18n::getLanguage();
             <li><a href="<?= $adminBase ?? '' ?>settings.php" class="<?= $currentPage === 'settings' ? 'active' : '' ?>">
                 <i class="fas fa-cog"></i> <?= __('nav_settings') ?>
             </a></li>
+            <li><a href="<?= $adminBase ?? '' ?>security.php" class="<?= $currentPage === 'security' ? 'active' : '' ?>">
+                <i class="fas fa-user-shield"></i> <?= __('nav_security') ?>
+            </a></li>
             <li><a href="<?= $adminBase ?? '' ?>update.php" class="<?= $currentPage === 'update' ? 'active' : '' ?>">
                 <i class="fas fa-sync-alt"></i> <?= __('nav_update') ?>
             </a></li>

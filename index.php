@@ -16,6 +16,7 @@ require_once __DIR__ . '/includes/Database.php';
 require_once __DIR__ . '/includes/Auth.php';
 require_once __DIR__ . '/includes/UniFiController.php';
 require_once __DIR__ . '/includes/Mailer.php';
+require_once __DIR__ . '/includes/Notifier.php';
 require_once __DIR__ . '/includes/I18n.php';
 
 $auth = new Auth();
@@ -158,6 +159,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_voucher'])) {
             $voucherData = doCreateVoucher($db, $site, $voucherName, $maxUses, $expireMinutes, $userId, $qos);
             $voucherCode  = $voucherData['code'];
             $voucherCreated = true;
+            Notifier::voucherCreated(1, $site['name'], $_SESSION['user_name'] ?? null);
 
             if ($sendEmail && !empty($recipientEmail)) {
                 $mailer->sendVoucherEmail($recipientEmail, $voucherCode, $site['name'], $maxUses);
@@ -207,6 +209,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_bulk'])) {
                 $bulkVouchers[] = doCreateVoucher($db, $site, $voucherName . '_' . ($i + 1), $maxUses, $expireMinutes, $userId, $qos);
             }
 
+            Notifier::voucherCreated($bulkCount, $site['name'], $_SESSION['user_name'] ?? null);
             $bulkCreated = true;
             $success = str_replace('{count}', $bulkCount, __('bulk_success'));
         } catch (Exception $e) {

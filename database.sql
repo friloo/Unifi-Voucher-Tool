@@ -47,6 +47,19 @@ CREATE TABLE IF NOT EXISTS `user_site_access` (
   UNIQUE KEY `unique_user_site` (`user_id`, `site_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS `voucher_templates` (
+  `id` INT PRIMARY KEY AUTO_INCREMENT,
+  `name` VARCHAR(255) NOT NULL,
+  `max_uses` INT NOT NULL DEFAULT 1,
+  `expire_minutes` INT NOT NULL DEFAULT 480,
+  `description` VARCHAR(500),
+  `is_active` TINYINT(1) DEFAULT 1,
+  `created_by` INT,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (`created_by`) REFERENCES `users`(`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS `vouchers` (
   `id` INT PRIMARY KEY AUTO_INCREMENT,
   `site_id` INT NOT NULL,
@@ -69,15 +82,6 @@ CREATE TABLE IF NOT EXISTS `vouchers` (
   INDEX `idx_unifi_id` (`unifi_voucher_id`),
   INDEX `idx_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- Migration für bestehende Tabellen (falls bereits vorhanden):
--- ALTER TABLE vouchers ADD COLUMN `status` ENUM('valid', 'used', 'expired') DEFAULT 'valid';
--- ALTER TABLE vouchers ADD COLUMN `used_count` INT DEFAULT 0;
--- ALTER TABLE vouchers ADD COLUMN `expires_at` TIMESTAMP NULL;
--- ALTER TABLE vouchers ADD COLUMN `synced_from_unifi` TINYINT(1) DEFAULT 0;
--- ALTER TABLE vouchers ADD COLUMN `last_sync` TIMESTAMP NULL;
--- ALTER TABLE vouchers ADD INDEX `idx_unifi_id` (`unifi_voucher_id`);
--- ALTER TABLE vouchers ADD INDEX `idx_status` (`status`);
 
 CREATE TABLE IF NOT EXISTS `sessions` (
   `id` VARCHAR(128) PRIMARY KEY,
@@ -114,5 +118,21 @@ CREATE TABLE IF NOT EXISTS `audit_log` (
   INDEX `idx_created` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Migration für bestehende Installationen:
--- Neue Tabellen werden automatisch erstellt (CREATE TABLE IF NOT EXISTS)
+CREATE TABLE IF NOT EXISTS `password_reset_tokens` (
+  `id` INT PRIMARY KEY AUTO_INCREMENT,
+  `user_id` INT NOT NULL,
+  `token` VARCHAR(128) NOT NULL,
+  `expires_at` TIMESTAMP NOT NULL,
+  `used` TINYINT(1) DEFAULT 0,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+  UNIQUE KEY `unique_token` (`token`),
+  INDEX `idx_expires` (`expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Migrations für bestehende Installationen:
+-- ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS `status` ENUM('valid', 'used', 'expired') DEFAULT 'valid';
+-- ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS `used_count` INT DEFAULT 0;
+-- ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS `expires_at` TIMESTAMP NULL;
+-- ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS `synced_from_unifi` TINYINT(1) DEFAULT 0;
+-- ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS `last_sync` TIMESTAMP NULL;

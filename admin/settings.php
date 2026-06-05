@@ -290,6 +290,7 @@ $faviconUrl = $db->getSetting('favicon_url', '');
                 <li><a href="users.php"><i class="fas fa-users"></i> Benutzer verwalten</a></li>
                 <li><a href="vouchers.php"><i class="fas fa-ticket-alt"></i> Voucher-Historie</a></li>
                 <li><a href="settings.php" class="active"><i class="fas fa-cog"></i> Einstellungen</a></li>
+                <li><a href="update.php"><i class="fas fa-sync-alt"></i> System-Update</a></li>
             </ul>
         </nav>
     </div>

@@ -8,7 +8,8 @@
 ![MySQL](https://img.shields.io/badge/MySQL-5.7%2B%20%2F%20MariaDB-4479A1?logo=mysql&logoColor=white)
 ![UniFi OS](https://img.shields.io/badge/UniFi%20OS-7.0%2B-0559C9?logo=ubiquiti&logoColor=white)
 ![License](https://img.shields.io/badge/Lizenz-MIT-green)
-![Version](https://img.shields.io/badge/Version-2.2.0-blueviolet)
+![Version](https://img.shields.io/badge/Version-2.3.0-blueviolet)
+![CI](https://github.com/friloo/unifi-voucher-tool/actions/workflows/ci.yml/badge.svg)
 
 </div>
 
@@ -29,10 +30,12 @@
 - 🏢 **Multi-Site-Support** – beliebig viele UniFi-Standorte zentral verwalten
 - 👥 **Benutzerverwaltung** mit granularer Site-Zugriffskontrolle
 - 🔐 **Authentifizierung** via lokale Accounts **oder** Microsoft 365 OAuth
-- 🔒 **2FA (TOTP)** – optionale Zwei-Faktor-Authentifizierung für lokale Accounts
+- 🔒 **2FA (TOTP)** – optional, mit Recovery-Codes & erzwingbarer Admin-Pflicht
+- 📈 **Reporting** – Auswertungen mit Charts und CSV-/PDF-Export
+- 🩺 **Health-Endpoint** (`/health.php`) für Monitoring/Uptime
 - 🔑 **Passwort-Reset** per E-Mail (token-basiert, zeitlich begrenzt)
 - 🚦 **Bandbreiten- & Datenlimits** pro Voucher/Profil (UniFi QoS)
-- 🧰 **REST-API mit API-Schlüsseln** – Voucher programmatisch erstellen
+- 🧰 **REST-API mit API-Schlüsseln** – Scopes (read/write), Rate-Limit, OpenAPI-Spec
 - 🔔 **Webhooks** (Slack / Teams / generisch) bei Voucher-Erstellung
 - 🧹 **Auto-Cleanup & DSGVO** – Aufbewahrungsfristen per Cron
 - 💾 **Config-Backup & -Restore** (JSON Export/Import)
@@ -369,12 +372,13 @@ setzen (`DB_*`, `APP_KEY`).
 - [x] REST-API mit API-Schlüsseln
 - [x] 2FA (TOTP), Webhooks, Bandbreitenlimits
 - [x] Docker-Container
-- [ ] Erweiterte Reporting-Funktionen (PDF/Excel)
+- [x] Erweiterte Reporting-Funktionen (CSV/PDF) + Health-Endpoint
+- [x] 2FA-Recovery-Codes, API-Scopes/Rate-Limit/OpenAPI, Test-Suite (PHPUnit/PHPStan)
 
 ---
 
 <div align="center">
 
-**Version 2.2.0** · Autor: **Friederich Loheide** · Lizenz: **MIT**
+**Version 2.3.0** · Autor: **Friederich Loheide** · Lizenz: **MIT**
 
 </div>

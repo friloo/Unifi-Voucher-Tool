@@ -34,6 +34,7 @@ class UpdateController
             case 'progress':    $this->actionProgress(); break;
             case 'set_channel': $this->actionSetChannel(); break;
             case 'migrations':  $this->actionMigrations(); break;
+            case 'run_migrations': $this->actionRunMigrations(); break;
             default:            $this->renderPage();
         }
     }
@@ -94,6 +95,28 @@ class UpdateController
                 __DIR__ . '/storage'
             );
             $this->json(['migrations' => $runner->status()]);
+        } catch (\Throwable $e) {
+            $this->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    private function actionRunMigrations(): void
+    {
+        if (!$this->auth->validateCsrfToken($_POST['csrf_token'] ?? '')) {
+            $this->json(['error' => 'Ungültiges Sicherheits-Token'], 403);
+            return;
+        }
+        try {
+            $runner = new MigrationRunner(
+                $this->db->getConnection(),
+                __DIR__ . '/migrations',
+                __DIR__ . '/storage'
+            );
+            $applied = $runner->runPending(true);
+            if ($this->audit) {
+                $this->audit->log('migrations_run', ['applied' => $applied], $_SESSION['user_id'] ?? null);
+            }
+            $this->json(['success' => true, 'applied' => $applied, 'migrations' => $runner->status()]);
         } catch (\Throwable $e) {
             $this->json(['error' => $e->getMessage()], 500);
         }

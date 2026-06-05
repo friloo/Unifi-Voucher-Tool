@@ -26,6 +26,10 @@ class Mailer {
         $this->fromName = $this->db->getSetting('smtp_from_name', $this->db->getSetting('app_title', 'UniFi Voucher System'));
     }
     
+    public function sendRaw($to, $subject, $plainBody) {
+        return $this->send($to, $subject, $plainBody, false);
+    }
+
     public function send($to, $subject, $body, $isHtml = false) {
         if (!$this->smtpEnabled || empty($this->smtpHost)) {
             // Fallback auf PHP mail()

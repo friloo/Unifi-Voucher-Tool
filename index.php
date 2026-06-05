@@ -1,4 +1,12 @@
 <?php
+// Updater maintenance hook — see updater/README.md
+$maintenanceFile = __DIR__ . '/updater/storage/.maintenance';
+if (file_exists($maintenanceFile)) {
+    http_response_code(503);
+    require __DIR__ . '/updater/templates/maintenance.html';
+    exit;
+}
+
 // Error Reporting für Debugging
 error_reporting(E_ALL);
 ini_set('display_errors', 0);

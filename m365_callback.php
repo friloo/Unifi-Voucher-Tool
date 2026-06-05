@@ -1,6 +1,7 @@
 <?php
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/includes/Database.php';
@@ -36,8 +37,18 @@ if (isset($_GET['error'])) {
 
 // Authorization Code erhalten
 if (isset($_GET['code'])) {
+    // OAuth-State validieren (CSRF-Schutz). Der State wurde in login.php erzeugt
+    // und in der Session hinterlegt; er muss exakt zurueckkommen.
+    $sessionState = $_SESSION['m365_state'] ?? '';
+    $returnedState = $_GET['state'] ?? '';
+    unset($_SESSION['m365_state']); // One-Time-Token, nach Pruefung verbrauchen
+
+    if ($sessionState === '' || !hash_equals($sessionState, $returnedState)) {
+        die("Ungültiger oder fehlender Sicherheits-Token (OAuth state). Bitte erneut anmelden.<br><a href='login.php'>Zurück zum Login</a>");
+    }
+
     $code = $_GET['code'];
-    
+
     // Token anfordern
     $tokenUrl = "https://login.microsoftonline.com/$tenantId/oauth2/v2.0/token";
     

@@ -1,0 +1,3 @@
+# Updater-eigene SQL-Migrationen liegen hier (Dateien: NNNN_beschreibung.sql).
+# Produktive Schema-Migrationen des Projekts (database.sql) gehoeren NICHT hierher.
+# Die Tracking-Tabelle `_updater_migrations` wird automatisch angelegt.

@@ -1,6 +1,7 @@
 <?php
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
 
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../includes/Database.php';
@@ -37,7 +38,7 @@ if (isset($_GET['ajax_stats'])) {
                     $controller = new UniFiController(
                         $site['unifi_controller_url'],
                         $site['unifi_username'],
-                        $site['unifi_password'],
+                        Crypto::decrypt($site['unifi_password']),
                         $site['site_id']
                     );
                     $controller->syncVouchersToDatabase($db, $site['id']);

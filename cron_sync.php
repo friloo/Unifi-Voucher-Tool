@@ -172,7 +172,7 @@ try {
             $controller = new UniFiController(
                 $site['unifi_controller_url'],
                 $site['unifi_username'],
-                $site['unifi_password'],
+                Crypto::decrypt($site['unifi_password']),
                 $site['site_id']
             );
 

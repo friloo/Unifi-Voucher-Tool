@@ -1,7 +1,16 @@
 <?php
+// Updater maintenance hook — see updater/README.md
+$maintenanceFile = __DIR__ . '/updater/storage/.maintenance';
+if (file_exists($maintenanceFile)) {
+    http_response_code(503);
+    require __DIR__ . '/updater/templates/maintenance.html';
+    exit;
+}
+
 // Error Reporting für Debugging
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/includes/Database.php';
@@ -12,6 +21,32 @@ require_once __DIR__ . '/includes/Mailer.php';
 $auth = new Auth();
 $db = Database::getInstance();
 $mailer = new Mailer();
+
+/**
+ * Session-basierter Throttle fuer die anonyme oeffentliche Voucher-Erstellung.
+ * Erlaubt max. 10 Erstellungen in 10 Minuten pro Session. Verhindert, dass
+ * der oeffentliche Modus zum Spammen des UniFi-Controllers missbraucht wird.
+ */
+function isVoucherRateLimited() {
+    $window = 600;   // 10 Minuten
+    $maxRequests = 10;
+    $now = time();
+
+    $timestamps = $_SESSION['voucher_create_times'] ?? [];
+    // Nur Eintraege innerhalb des Zeitfensters behalten
+    $timestamps = array_values(array_filter($timestamps, function ($t) use ($now, $window) {
+        return ($now - $t) < $window;
+    }));
+
+    if (count($timestamps) >= $maxRequests) {
+        $_SESSION['voucher_create_times'] = $timestamps;
+        return true;
+    }
+
+    $timestamps[] = $now;
+    $_SESSION['voucher_create_times'] = $timestamps;
+    return false;
+}
 
 // Settings laden
 $appTitle = $db->getSetting('app_title', 'UniFi Voucher System');
@@ -67,8 +102,14 @@ if ($auth->isLoggedIn()) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_voucher'])) {
     if (!$publicAccess && !$auth->isLoggedIn()) {
         $error = 'Sie müssen angemeldet sein';
-    } elseif ($auth->isLoggedIn() && !$auth->validateCsrfToken($_POST['csrf_token'] ?? '')) {
+    } elseif (!$auth->validateCsrfToken($_POST['csrf_token'] ?? '')) {
+        // CSRF wird jetzt fuer ALLE geprueft – auch fuer anonyme oeffentliche
+        // Erstellung (Token wird per Session auch ohne Login vergeben).
         $error = 'Ungültiges Sicherheits-Token';
+    } elseif (!$auth->isLoggedIn() && isVoucherRateLimited()) {
+        // Einfacher Session-basierter Throttle gegen Missbrauch/Spam im
+        // oeffentlichen Modus (kein Login = kein Benutzerkontext).
+        $error = 'Zu viele Anfragen. Bitte warten Sie einen Moment.';
     } else {
         try {
             $siteId = (int)($_POST['site_id'] ?? 0);
@@ -114,7 +155,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_voucher'])) {
             $controller = new UniFiController(
                 $site['unifi_controller_url'],
                 $site['unifi_username'],
-                $site['unifi_password'],
+                Crypto::decrypt($site['unifi_password']),
                 $site['site_id']
             );
 
@@ -558,9 +599,8 @@ $autoSelectSite = (count($sites) === 1) ? $sites[0]['id'] : 0;
                 <!-- FIX: Trigger-Feld kommt nicht mehr vom Submit-Button -->
                 <input type="hidden" name="create_voucher" value="1">
 
-                <?php if ($auth->isLoggedIn()): ?>
-                    <input type="hidden" name="csrf_token" value="<?= $auth->getCsrfToken() ?>">
-                <?php endif; ?>
+                <!-- CSRF-Token fuer alle (auch anonyme oeffentliche Erstellung) -->
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($auth->getCsrfToken()) ?>">
 
                 <div class="form-group">
                     <label for="voucher_name">Voucher-Name *</label>

@@ -37,3 +37,17 @@ $apiKeyRow = ApiKey::verify(ApiKey::fromRequest(), $db);
 if (!$apiKeyRow) {
     api_json(['error' => 'unauthorized', 'message' => 'Gültiger API-Schlüssel erforderlich (Authorization: Bearer …)'], 401);
 }
+
+// Rate-Limit pro Schlüssel
+if (!ApiKey::checkRateLimit($apiKeyRow, $db)) {
+    header('Retry-After: 60');
+    api_json(['error' => 'rate_limited', 'message' => 'Rate-Limit überschritten. Bitte später erneut versuchen.'], 429);
+}
+
+/** Erzwingt einen Scope für den aktuellen Schlüssel. */
+function api_require_scope($needed) {
+    global $apiKeyRow;
+    if (!ApiKey::hasScope($apiKeyRow, $needed)) {
+        api_json(['error' => 'forbidden', 'message' => "Schlüssel hat keinen '$needed'-Scope"], 403);
+    }
+}

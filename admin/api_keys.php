@@ -28,10 +28,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_key'])) {
         if ($name === '') {
             $error = __('error_name_req');
         } else {
+            $scope = ($_POST['scope'] ?? 'write') === 'read' ? 'read' : 'write';
+            $rate  = max(0, (int)($_POST['rate_limit'] ?? 0));
             $k = ApiKey::generate();
             $db->execute(
-                "INSERT INTO api_keys (name, key_prefix, key_hash, created_by) VALUES (?, ?, ?, ?)",
-                [$name, $k['prefix'], $k['hash'], $_SESSION['user_id']]
+                "INSERT INTO api_keys (name, key_prefix, key_hash, scope, rate_limit, created_by) VALUES (?, ?, ?, ?, ?, ?)",
+                [$name, $k['prefix'], $k['hash'], $scope, $rate, $_SESSION['user_id']]
             );
             $auth->writeAuditLog($_SESSION['user_id'], 'api_key_create', 'api_key', null, "API-Key '$name' erstellt");
             $newKey = $k['plain'];
@@ -104,9 +106,20 @@ code { font-family:monospace; background:var(--bg-hover); padding:2px 6px; borde
     <h2>Neuen API-Schlüssel erstellen</h2>
     <form method="post" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
-        <div style="flex:1;min-width:220px;">
+        <div style="flex:2;min-width:200px;">
             <label class="muted" style="display:block;margin-bottom:6px;">Bezeichnung</label>
             <input class="input" type="text" name="name" placeholder="z.B. Buchungssystem, Terminal Foyer" required>
+        </div>
+        <div style="flex:1;min-width:130px;">
+            <label class="muted" style="display:block;margin-bottom:6px;">Berechtigung</label>
+            <select class="input" name="scope">
+                <option value="write">Lesen + Erstellen</option>
+                <option value="read">Nur Lesen</option>
+            </select>
+        </div>
+        <div style="flex:1;min-width:120px;">
+            <label class="muted" style="display:block;margin-bottom:6px;">Limit (Anfr./min)</label>
+            <input class="input" type="number" name="rate_limit" min="0" value="0" title="0 = unbegrenzt">
         </div>
         <button class="btn btn-primary" type="submit" name="create_key">Erstellen</button>
     </form>
@@ -118,11 +131,13 @@ code { font-family:monospace; background:var(--bg-hover); padding:2px 6px; borde
         <p class="muted">Noch keine API-Schlüssel angelegt.</p>
     <?php else: ?>
     <table>
-        <tr><th>Name</th><th>Präfix</th><th>Status</th><th>Zuletzt genutzt</th><th>Erstellt von</th><th></th></tr>
+        <tr><th>Name</th><th>Präfix</th><th>Scope</th><th>Limit</th><th>Status</th><th>Zuletzt genutzt</th><th>Erstellt von</th><th></th></tr>
         <?php foreach ($keys as $k): ?>
         <tr>
             <td><?= htmlspecialchars($k['name']) ?></td>
             <td><code>uvt_<?= htmlspecialchars($k['key_prefix']) ?>…</code></td>
+            <td><?= ($k['scope'] ?? 'write') === 'read' ? 'nur Lesen' : 'Lesen+Erstellen' ?></td>
+            <td><?= (int)($k['rate_limit'] ?? 0) === 0 ? '∞' : (int)$k['rate_limit'] . '/min' ?></td>
             <td><span class="badge <?= $k['is_active'] ? 'b-on' : 'b-off' ?>"><?= $k['is_active'] ? 'aktiv' : 'gesperrt' ?></span></td>
             <td class="muted"><?= $k['last_used_at'] ? htmlspecialchars($k['last_used_at']) : '–' ?></td>
             <td class="muted"><?= htmlspecialchars($k['creator'] ?? '–') ?></td>
@@ -147,6 +162,7 @@ curl -X POST https://IHRE-DOMAIN/api/vouchers.php \
 
 # Sites auflisten
 curl https://IHRE-DOMAIN/api/sites.php -H "X-API-Key: uvt_…"</pre>
+    <p class="muted" style="margin-top:12px;">OpenAPI-Spezifikation (Import in Postman/Swagger): <a href="../api/openapi.php" target="_blank">/api/openapi.php</a></p>
 </div>
 
 </div><!-- /main-content -->

@@ -46,6 +46,38 @@ class ApiKey {
         return $row;
     }
 
+    /**
+     * Fixed-Window-Rate-Limit pro Schlüssel (Anfragen/Minute). rate_limit = 0
+     * bedeutet unbegrenzt. Gibt true zurück, wenn die Anfrage erlaubt ist.
+     */
+    public static function checkRateLimit($row, $db) {
+        $limit = (int)($row['rate_limit'] ?? 0);
+        if ($limit <= 0) {
+            return true;
+        }
+        try {
+            // alte Treffer (>60s) aufräumen
+            $db->query("DELETE FROM api_key_hits WHERE api_key_id = ? AND hit_at < DATE_SUB(NOW(), INTERVAL 60 SECOND)", [$row['id']]);
+            $cnt = $db->fetchOne("SELECT COUNT(*) AS c FROM api_key_hits WHERE api_key_id = ?", [$row['id']]);
+            if ($cnt && (int)$cnt['c'] >= $limit) {
+                return false;
+            }
+            $db->query("INSERT INTO api_key_hits (api_key_id) VALUES (?)", [$row['id']]);
+        } catch (\Exception $e) {
+            return true; // Bei Fehlern (z.B. Tabelle fehlt) nicht blockieren
+        }
+        return true;
+    }
+
+    /** Prüft, ob der Schlüssel den geforderten Scope hat ('read' < 'write'). */
+    public static function hasScope($row, $needed) {
+        $scope = $row['scope'] ?? 'write';
+        if ($needed === 'read') {
+            return in_array($scope, ['read', 'write'], true);
+        }
+        return $scope === 'write';
+    }
+
     /** Liest den Schlüssel aus dem Request (Authorization: Bearer / X-API-Key). */
     public static function fromRequest() {
         $headers = [];

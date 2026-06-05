@@ -16,6 +16,7 @@ require_once __DIR__ . '/../includes/Notifier.php';
 $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method === 'GET') {
+    api_require_scope('read');
     $siteId = (int)($_GET['site_id'] ?? 0);
     if ($siteId <= 0) {
         api_json(['error' => 'invalid_request', 'message' => 'site_id erforderlich'], 400);
@@ -29,6 +30,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST') {
+    api_require_scope('write');
     $body          = api_body();
     $siteId        = (int)($body['site_id'] ?? 0);
     $name          = trim((string)($body['name'] ?? ''));

@@ -8,7 +8,7 @@
 ![MySQL](https://img.shields.io/badge/MySQL-5.7%2B%20%2F%20MariaDB-4479A1?logo=mysql&logoColor=white)
 ![UniFi OS](https://img.shields.io/badge/UniFi%20OS-7.0%2B-0559C9?logo=ubiquiti&logoColor=white)
 ![License](https://img.shields.io/badge/Lizenz-MIT-green)
-![Version](https://img.shields.io/badge/Version-2.1.0-blueviolet)
+![Version](https://img.shields.io/badge/Version-2.2.0-blueviolet)
 
 </div>
 
@@ -29,7 +29,14 @@
 - 🏢 **Multi-Site-Support** – beliebig viele UniFi-Standorte zentral verwalten
 - 👥 **Benutzerverwaltung** mit granularer Site-Zugriffskontrolle
 - 🔐 **Authentifizierung** via lokale Accounts **oder** Microsoft 365 OAuth
+- 🔒 **2FA (TOTP)** – optionale Zwei-Faktor-Authentifizierung für lokale Accounts
 - 🔑 **Passwort-Reset** per E-Mail (token-basiert, zeitlich begrenzt)
+- 🚦 **Bandbreiten- & Datenlimits** pro Voucher/Profil (UniFi QoS)
+- 🧰 **REST-API mit API-Schlüsseln** – Voucher programmatisch erstellen
+- 🔔 **Webhooks** (Slack / Teams / generisch) bei Voucher-Erstellung
+- 🧹 **Auto-Cleanup & DSGVO** – Aufbewahrungsfristen per Cron
+- 💾 **Config-Backup & -Restore** (JSON Export/Import)
+- 🐳 **Docker** – Dockerfile + docker-compose (MariaDB)
 - 🌍 **Öffentlicher Modus** – optional ohne Login nutzbar (mit CSRF-Schutz & Throttle)
 - 🌗 **Dark Mode** – umschaltbar, Einstellung wird im Browser gespeichert
 - 🌐 **Mehrsprachig** – Deutsch / Englisch per Umschalter (`lang/`)
@@ -286,6 +293,59 @@ Body: {"cmd": "delete-voucher", "_id": "<voucher_id>"}
 
 ---
 
+## 🧰 REST-API
+
+Voucher lassen sich programmatisch erstellen (z. B. aus Buchungssystemen oder
+Self-Service-Terminals). Schlüssel werden unter **Administration → API-Schlüssel**
+verwaltet. Authentifizierung per `Authorization: Bearer <key>` oder `X-API-Key`.
+
+```bash
+# Voucher erstellen
+curl -X POST https://ihre-domain.de/api/vouchers.php \
+  -H "Authorization: Bearer uvt_…" \
+  -H "Content-Type: application/json" \
+  -d '{"site_id":1,"name":"API Gast","max_uses":1,"expire_minutes":480,
+       "qos":{"down":10000,"up":2000,"quota_mb":500}}'
+
+# Sites auflisten
+curl https://ihre-domain.de/api/sites.php -H "X-API-Key: uvt_…"
+
+# Voucher einer Site abrufen
+curl "https://ihre-domain.de/api/vouchers.php?site_id=1" -H "X-API-Key: uvt_…"
+```
+
+| Methode | Endpunkt | Zweck |
+|---|---|---|
+| `POST` | `/api/vouchers.php` | Voucher erstellen (optional mit QoS-Limits) |
+| `GET`  | `/api/vouchers.php?site_id=<id>` | Voucher einer Site auflisten |
+| `GET`  | `/api/sites.php` | Aktive Sites auflisten |
+
+## 🔒 2FA, Webhooks & Wartung
+
+- **2FA:** Unter **Administration → Sicherheit (2FA)** aktivierbar – QR-Code
+  scannen, Code bestätigen. Danach wird bei jeder Anmeldung ein Authenticator-
+  Code abgefragt.
+- **Webhooks & Trusted-Proxy & Datenhaltung:** unter **Administration →
+  Integration & Wartung** konfigurierbar.
+- **Auto-Cleanup (DSGVO):** täglicher Cron, löscht abgelaufene Voucher,
+  Audit-Log, Login-Versuche nach einstellbaren Fristen:
+  ```bash
+  0 3 * * * curl -s "https://ihre-domain.de/cron_cleanup.php?token=IHR_CRON_TOKEN"
+  ```
+
+## 🐳 Docker
+
+```bash
+# APP_KEY erzeugen und in docker-compose.yml eintragen:
+php -r 'echo base64_encode(random_bytes(32))."\n";'
+
+docker compose up -d        # App auf http://localhost:8080
+```
+
+Das Schema wird beim ersten Start automatisch in MariaDB geladen; danach den
+Installer (`/install.php`) für den Admin-Account aufrufen oder Config per ENV
+setzen (`DB_*`, `APP_KEY`).
+
 ## 🗺️ Roadmap
 
 - [x] Voucher-Templates (vordefinierte Laufzeiten)
@@ -295,13 +355,15 @@ Body: {"cmd": "delete-voucher", "_id": "<voucher_id>"}
 - [x] Passwort-Reset
 - [x] Audit-Log
 - [x] Auto-Updater mit DB-Migrationen
-- [ ] Erweiterte Reporting-Funktionen
-- [ ] Docker-Container
+- [x] REST-API mit API-Schlüsseln
+- [x] 2FA (TOTP), Webhooks, Bandbreitenlimits
+- [x] Docker-Container
+- [ ] Erweiterte Reporting-Funktionen (PDF/Excel)
 
 ---
 
 <div align="center">
 
-**Version 2.1.0** · Autor: **Friederich Loheide** · Lizenz: **MIT**
+**Version 2.2.0** · Autor: **Friederich Loheide** · Lizenz: **MIT**
 
 </div>

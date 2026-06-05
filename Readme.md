@@ -24,13 +24,20 @@
 ## ✨ Features
 
 - 🎟️ **Voucher-Erstellung** mit sofortiger QR-Code-Anzeige, Druckvorlage und E-Mail-Versand
+- 📦 **Bulk-Erstellung** – bis zu 20 Vouchers auf einmal, inkl. Sammeldruck-Layout
+- 🧩 **Voucher-Profile/Templates** – vordefinierte Laufzeiten & Gerätelimits per Schnellauswahl
 - 🏢 **Multi-Site-Support** – beliebig viele UniFi-Standorte zentral verwalten
 - 👥 **Benutzerverwaltung** mit granularer Site-Zugriffskontrolle
 - 🔐 **Authentifizierung** via lokale Accounts **oder** Microsoft 365 OAuth
+- 🔑 **Passwort-Reset** per E-Mail (token-basiert, zeitlich begrenzt)
 - 🌍 **Öffentlicher Modus** – optional ohne Login nutzbar (mit CSRF-Schutz & Throttle)
+- 🌗 **Dark Mode** – umschaltbar, Einstellung wird im Browser gespeichert
+- 🌐 **Mehrsprachig** – Deutsch / Englisch per Umschalter (`lang/`)
+- 📱 **Responsive Admin-Layout** mit Hamburger-Menü & Sidebar-Overlay
 - 📊 **Admin-Dashboard** mit Live-Statistiken und Sync-Funktion
+- 📝 **Audit-Log** – nachvollziehbare Protokollierung von Login & Änderungen (mit Filter)
 - 📥 **CSV-Export** aller Vouchers pro Site
-- 🔄 **Integrierter Auto-Updater** – Updates per Klick aus dem Admin-Bereich
+- 🔄 **Integrierter Auto-Updater** – Updates & DB-Migrationen per Klick aus dem Admin-Bereich
 - 🛡️ **Security-by-default**: CSRF-Schutz, bcrypt-Passwörter, Prepared Statements,
   Login-Rate-Limiting, OAuth-State-Validierung, Verschlüsselung sensibler Daten
 
@@ -44,6 +51,13 @@
   <img src="docs/screenshots/login.png" alt="Login mit Microsoft 365" width="32%">
   <img src="docs/screenshots/voucher-form.png" alt="Voucher erstellen" width="32%">
   <img src="docs/screenshots/voucher-result.png" alt="Voucher-Ergebnis" width="32%">
+</div>
+
+### Bulk-Erstellung & Dark Mode
+
+<div align="center">
+  <img src="docs/screenshots/bulk-vouchers.png" alt="Bulk-Voucher-Erstellung" width="48%">
+  <img src="docs/screenshots/admin-dashboard-dark.png" alt="Dashboard im Dark Mode" width="48%">
 </div>
 
 ### Administration & Updater
@@ -129,7 +143,9 @@ SSH oder manuelles `git pull`.
   geschützten Pfaden (`config.php`, Uploads, …), automatischen DB-Migrationen
   und OPcache-Reset
 - 🔀 **Channel-Auswahl** zwischen `stable` und `development`
-- 📊 **Migrations-Status** in einem eigenen Tab
+- 📊 **Migrations-Status** in einem eigenen Tab – inkl. Button **„Ausstehende
+  Migrationen ausführen"** (legt z. B. neue Tabellen für bestehende
+  Installationen an, ohne dass ein Code-Update nötig ist)
 
 Während eines Updates wird die Anwendung kurz in den **Wartungsmodus** versetzt:
 
@@ -272,12 +288,15 @@ Body: {"cmd": "delete-voucher", "_id": "<voucher_id>"}
 
 ## 🗺️ Roadmap
 
-- [ ] Voucher-Templates (vordefinierte Laufzeiten)
-- [ ] Bulk-Voucher-Erstellung
+- [x] Voucher-Templates (vordefinierte Laufzeiten)
+- [x] Bulk-Voucher-Erstellung
+- [x] Mehrsprachigkeit (DE/EN)
+- [x] Dark Mode
+- [x] Passwort-Reset
+- [x] Audit-Log
+- [x] Auto-Updater mit DB-Migrationen
 - [ ] Erweiterte Reporting-Funktionen
 - [ ] Docker-Container
-- [ ] Mehrsprachigkeit
-- [x] Auto-Updater mit DB-Migrationen
 
 ---
 

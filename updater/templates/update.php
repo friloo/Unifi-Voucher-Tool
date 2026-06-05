@@ -133,6 +133,8 @@ $channels = \Updater\UpdateManager::CHANNELS;
         <div class="card">
             <h2>Migrations-Status</h2>
             <div id="migList"><p class="muted">Wird geladen …</p></div>
+            <button class="btn" id="btnRunMig" style="margin-top:16px; display:none;">Ausstehende Migrationen ausführen</button>
+            <div class="alert alert-ok" id="migAlert"></div>
         </div>
     </div>
 </div>
@@ -250,10 +252,36 @@ async function loadMigrations() {
             '<div class="mig-item"><span>' + m.filename + '</span>' +
             '<span class="badge ' + (m.applied ? 'badge-on">angewandt' : 'badge-off">offen') + '</span></div>'
         ).join('');
+        const pending = d.migrations.some(m => !m.applied);
+        $('btnRunMig').style.display = pending ? 'inline-block' : 'none';
     } catch (e) {
         el.innerHTML = '<p class="muted">Fehler: ' + e.message + '</p>';
     }
 }
+
+$('btnRunMig').addEventListener('click', async () => {
+    $('btnRunMig').disabled = true; $('btnRunMig').textContent = 'Führe aus …';
+    $('migAlert').classList.remove('show');
+    try {
+        const body = new URLSearchParams({ action: 'run_migrations', csrf_token: CSRF });
+        const r = await fetch('update.php', { method: 'POST', body });
+        const d = await r.json();
+        if (d.error) {
+            $('migAlert').textContent = 'Fehler: ' + d.error;
+            $('migAlert').className = 'alert alert-error show';
+        } else {
+            const n = (d.applied || []).length;
+            $('migAlert').textContent = n > 0 ? (n + ' Migration(en) ausgeführt.') : 'Keine ausstehenden Migrationen.';
+            $('migAlert').className = 'alert alert-ok show';
+            loadMigrations();
+        }
+    } catch (e) {
+        $('migAlert').textContent = 'Fehler: ' + e.message;
+        $('migAlert').className = 'alert alert-error show';
+    } finally {
+        $('btnRunMig').disabled = false; $('btnRunMig').textContent = 'Ausstehende Migrationen ausführen';
+    }
+});
 </script>
 </body>
 </html>

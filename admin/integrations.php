@@ -32,6 +32,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
         $db->setSetting('twilio_sid',   trim($_POST['twilio_sid'] ?? ''));
         $db->setSetting('twilio_from',  trim($_POST['twilio_from'] ?? ''));
         if (!empty($_POST['twilio_token'])) { $db->setSetting('twilio_token', trim($_POST['twilio_token'])); }
+        $db->setSetting('oidc_enabled',      isset($_POST['oidc_enabled']) ? '1' : '0');
+        $db->setSetting('oidc_name',         trim($_POST['oidc_name'] ?? 'SSO'));
+        $db->setSetting('oidc_client_id',    trim($_POST['oidc_client_id'] ?? ''));
+        $db->setSetting('oidc_auth_url',     trim($_POST['oidc_auth_url'] ?? ''));
+        $db->setSetting('oidc_token_url',    trim($_POST['oidc_token_url'] ?? ''));
+        $db->setSetting('oidc_userinfo_url', trim($_POST['oidc_userinfo_url'] ?? ''));
+        $db->setSetting('oidc_scopes',       trim($_POST['oidc_scopes'] ?? 'openid profile email'));
+        if (!empty($_POST['oidc_client_secret'])) { $db->setSetting('oidc_client_secret', trim($_POST['oidc_client_secret'])); }
         $db->setSetting('user_daily_voucher_limit', max(0, (int)($_POST['user_daily_voucher_limit'] ?? 0)));
         $db->setSetting('trusted_proxy',        trim($_POST['trusted_proxy'] ?? ''));
         $db->setSetting('webhook_enabled',      isset($_POST['webhook_enabled']) ? '1' : '0');
@@ -57,6 +65,14 @@ $smsEnabled        = $db->getSetting('sms_enabled', '0') === '1';
 $twilioSid         = $db->getSetting('twilio_sid', '');
 $twilioFrom        = $db->getSetting('twilio_from', '');
 $twilioTokenSet    = $db->getSetting('twilio_token', '') !== '';
+$oidcEnabled       = $db->getSetting('oidc_enabled', '0') === '1';
+$oidcName          = $db->getSetting('oidc_name', 'SSO');
+$oidcClientId      = $db->getSetting('oidc_client_id', '');
+$oidcAuthUrl       = $db->getSetting('oidc_auth_url', '');
+$oidcTokenUrl      = $db->getSetting('oidc_token_url', '');
+$oidcUserinfoUrl   = $db->getSetting('oidc_userinfo_url', '');
+$oidcScopes        = $db->getSetting('oidc_scopes', 'openid profile email');
+$oidcSecretSet     = $db->getSetting('oidc_client_secret', '') !== '';
 $dailyLimit        = (int)$db->getSetting('user_daily_voucher_limit', 0);
 $trustedProxy      = $db->getSetting('trusted_proxy', '');
 $webhookEnabled    = $db->getSetting('webhook_enabled', '0') === '1';
@@ -143,6 +159,21 @@ label { display:block; font-size:14px; color:var(--text-secondary); margin:14px 
         <div><label>Auth Token<?= $twilioTokenSet ? ' (gesetzt)' : '' ?></label><input class="input" type="password" name="twilio_token" placeholder="<?= $twilioTokenSet ? '••••••• (leer = unverändert)' : '' ?>"></div>
         <div><label>Absender (From)</label><input class="input" type="text" name="twilio_from" value="<?= htmlspecialchars($twilioFrom) ?>" placeholder="+49…"></div>
     </div>
+</div>
+
+<div class="card">
+    <h2>Single Sign-On (OpenID Connect)</h2>
+    <p class="muted">Generischer OIDC-Provider (z.B. Keycloak, Authentik, Google, Auth0). Redirect-URI: <code><?= htmlspecialchars(((!empty($_SERVER['HTTPS'])&&$_SERVER['HTTPS']!=='off')?'https':'http').'://'.$_SERVER['HTTP_HOST'].rtrim(dirname($_SERVER['SCRIPT_NAME']),'/').'/../oidc_callback.php') ?></code></p>
+    <label class="chk"><input type="checkbox" name="oidc_enabled" <?= $oidcEnabled ? 'checked' : '' ?>> OIDC-Login aktiv</label>
+    <div class="row3" style="margin-top:10px;">
+        <div><label>Button-Text</label><input class="input" type="text" name="oidc_name" value="<?= htmlspecialchars($oidcName) ?>"></div>
+        <div><label>Client ID</label><input class="input" type="text" name="oidc_client_id" value="<?= htmlspecialchars($oidcClientId) ?>"></div>
+        <div><label>Client Secret<?= $oidcSecretSet ? ' (gesetzt)' : '' ?></label><input class="input" type="password" name="oidc_client_secret" placeholder="<?= $oidcSecretSet ? '••••••• (leer = unverändert)' : '' ?>"></div>
+    </div>
+    <label>Authorization Endpoint</label><input class="input" type="url" name="oidc_auth_url" value="<?= htmlspecialchars($oidcAuthUrl) ?>" placeholder="https://idp/authorize">
+    <label>Token Endpoint</label><input class="input" type="url" name="oidc_token_url" value="<?= htmlspecialchars($oidcTokenUrl) ?>" placeholder="https://idp/token">
+    <label>Userinfo Endpoint</label><input class="input" type="url" name="oidc_userinfo_url" value="<?= htmlspecialchars($oidcUserinfoUrl) ?>" placeholder="https://idp/userinfo">
+    <label>Scopes</label><input class="input" type="text" name="oidc_scopes" value="<?= htmlspecialchars($oidcScopes) ?>">
 </div>
 
 <div class="card">

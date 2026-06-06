@@ -94,6 +94,27 @@ try {
         $m365LoginUrl = "https://login.microsoftonline.com/$m365TenantId/oauth2/v2.0/authorize?" . http_build_query($params);
     }
 
+    // Generisches OIDC (optional)
+    $oidcEnabled  = $db->getSetting('oidc_enabled', '0') === '1'
+        && $db->getSetting('oidc_client_id', '') !== ''
+        && $db->getSetting('oidc_auth_url', '') !== '';
+    $oidcName     = $db->getSetting('oidc_name', 'SSO');
+    $oidcLoginUrl = '';
+    if ($oidcEnabled) {
+        $protocol   = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
+        $scriptPath = dirname($_SERVER['SCRIPT_NAME']);
+        $scriptPath = $scriptPath === '/' ? '' : $scriptPath;
+        $oidcState  = bin2hex(random_bytes(16));
+        $_SESSION['oidc_state'] = $oidcState;
+        $oidcLoginUrl = rtrim($db->getSetting('oidc_auth_url', ''), '?') . '?' . http_build_query([
+            'client_id'     => $db->getSetting('oidc_client_id', ''),
+            'response_type' => 'code',
+            'redirect_uri'  => $protocol . '://' . $_SERVER['HTTP_HOST'] . $scriptPath . '/oidc_callback.php',
+            'scope'         => $db->getSetting('oidc_scopes', 'openid profile email'),
+            'state'         => $oidcState,
+        ]);
+    }
+
     $showLocalLogin = isset($_GET['local']) && $_GET['local'] === '1';
 
 } catch (Exception $e) {
@@ -221,6 +242,13 @@ try {
                 <?= __('login_ms') ?>
             </a>
         <?php endif; ?>
+    <?php endif; ?>
+
+    <?php if (!$show2fa && $oidcEnabled): ?>
+        <div class="divider"><span><?= __('or') ?></span></div>
+        <a href="<?= htmlspecialchars($oidcLoginUrl) ?>" class="btn" style="display:block;text-align:center;text-decoration:none;background:#444;">
+            🔑 <?= htmlspecialchars($oidcName) ?>
+        </a>
     <?php endif; ?>
 
     <?php if ($publicAccess): ?>

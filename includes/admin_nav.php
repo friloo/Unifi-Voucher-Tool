@@ -113,6 +113,9 @@ $lang        = I18n::getLanguage();
             <li><a href="<?= $adminBase ?? '' ?>reports.php" class="<?= $currentPage === 'reports' ? 'active' : '' ?>">
                 <i class="fas fa-chart-line"></i> <?= __('nav_reports') ?>
             </a></li>
+            <li><a href="<?= $adminBase ?? '' ?>import.php" class="<?= $currentPage === 'import' ? 'active' : '' ?>">
+                <i class="fas fa-file-import"></i> <?= __('nav_import') ?>
+            </a></li>
             <li><a href="<?= $adminBase ?? '' ?>settings.php" class="<?= $currentPage === 'settings' ? 'active' : '' ?>">
                 <i class="fas fa-cog"></i> <?= __('nav_settings') ?>
             </a></li>

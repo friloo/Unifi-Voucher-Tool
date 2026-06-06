@@ -8,6 +8,7 @@ return [
     'nav_templates'     => 'Voucher Profiles',
     'nav_audit_log'     => 'Audit Log',
     'nav_reports'       => 'Reporting',
+    'nav_import'        => 'Voucher Import',
     'nav_settings'      => 'Settings',
     'nav_api_keys'      => 'API Keys',
     'nav_security'      => 'Security (2FA)',

@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS `vouchers` (
 
 CREATE TABLE IF NOT EXISTS `sessions` (
   `id` VARCHAR(128) PRIMARY KEY,
-  `user_id` INT NOT NULL,
+  `user_id` INT NULL,
   `data` TEXT,
   `expires_at` TIMESTAMP NOT NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

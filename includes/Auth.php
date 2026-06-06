@@ -18,7 +18,16 @@ class Auth {
             ini_set('session.cookie_httponly', 1);
             ini_set('session.use_strict_mode', 1);
             ini_set('session.cookie_samesite', 'Lax');
-            
+
+            // Opt-in: Sessions in der DB ablegen (für "überall abmelden" / Skalierung)
+            try {
+                if ($this->db->getSetting('session_driver', 'php') === 'db') {
+                    require_once __DIR__ . '/DbSessionHandler.php';
+                    $ttl = defined('SESSION_LIFETIME') ? (int)SESSION_LIFETIME : 3600;
+                    session_set_save_handler(new DbSessionHandler($this->db, $ttl), true);
+                }
+            } catch (\Throwable $e) { /* Fallback: Standard-PHP-Sessions */ }
+
             if (!session_start()) {
                 die("Session konnte nicht gestartet werden");
             }
@@ -434,6 +443,31 @@ class Auth {
         } catch (\Exception $e) { /* Richtlinie nie blockierend */ }
     }
     
+    /** Anzahl aktiver (nicht abgelaufener) DB-Sessions des aktuellen Nutzers. */
+    public function activeSessionCount() {
+        if (!$this->isLoggedIn()) return 0;
+        try {
+            $r = $this->db->fetchOne(
+                "SELECT COUNT(*) c FROM sessions WHERE user_id = ? AND expires_at > NOW()",
+                [$_SESSION['user_id']]
+            );
+            return (int)($r['c'] ?? 0);
+        } catch (\Exception $e) { return 0; }
+    }
+
+    /** Alle anderen Sessions des Nutzers beenden ("überall abmelden"). */
+    public function logoutOtherSessions() {
+        if (!$this->isLoggedIn()) return;
+        try {
+            $current = session_id();
+            $this->db->query(
+                "DELETE FROM sessions WHERE user_id = ? AND id != ?",
+                [$_SESSION['user_id'], $current]
+            );
+            $this->writeAuditLog($_SESSION['user_id'], 'logout_other_sessions', 'user', $_SESSION['user_id'], 'Andere Sessions beendet');
+        } catch (\Exception $e) { /* nur bei DB-Sessions wirksam */ }
+    }
+
     // Login erforderlich
     public function requireLogin() {
         if (!$this->isLoggedIn()) {

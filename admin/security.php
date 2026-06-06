@@ -42,6 +42,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['enable_totp'])) {
     }
 }
 
+// Überall abmelden (andere Sessions beenden)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['logout_others'])) {
+    if (!$auth->validateCsrfToken($_POST['csrf_token'] ?? '')) {
+        $error = 'Ungültiges Sicherheits-Token';
+    } else {
+        $auth->logoutOtherSessions();
+        $success = 'Alle anderen Sitzungen wurden beendet.';
+    }
+}
+
 // Recovery-Codes neu erzeugen
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['regen_codes'])) {
     if (!$auth->validateCsrfToken($_POST['csrf_token'] ?? '')) {
@@ -73,6 +83,8 @@ if (!$totpEnabled && $hasPassword) {
     $otpUri = Totp::provisioningUri($setupSecret, $user['email'], $appTitle);
 }
 $csrf = $auth->getCsrfToken();
+$dbSessions = $db->getSetting('session_driver', 'php') === 'db';
+$activeSessions = $dbSessions ? $auth->activeSessionCount() : 0;
 ?>
 <!DOCTYPE html>
 <html lang="de">
@@ -165,6 +177,15 @@ input[type=text] { width:100%; padding:13px; border:2px solid #e0e0e0; border-ra
         correctLevel: QRCode.CorrectLevel.M
       });
     </script>
+  <?php endif; ?>
+
+  <?php if ($dbSessions): ?>
+  <hr style="margin:20px 0;border:none;border-top:1px solid #eee;">
+  <p class="sub">Aktive Sitzungen: <strong><?= (int)$activeSessions ?></strong></p>
+  <form method="post" onsubmit="return confirm('Alle anderen Sitzungen abmelden?');">
+    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf) ?>">
+    <button type="submit" name="logout_others" class="btn" style="background:#eef0ff;color:#5a63d6;width:100%;">Auf allen anderen Geräten abmelden</button>
+  </form>
   <?php endif; ?>
 
   <a class="back" href="../index.php">← Zurück</a>

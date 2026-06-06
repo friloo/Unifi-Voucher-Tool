@@ -24,6 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
         $error = __('error_csrf');
     } else {
         $db->setSetting('enforce_2fa_admins',   isset($_POST['enforce_2fa_admins']) ? '1' : '0');
+        $db->setSetting('session_driver',       ($_POST['session_driver'] ?? 'php') === 'db' ? 'db' : 'php');
         $cm = in_array($_POST['captcha_mode'] ?? 'off', ['off','math','hcaptcha'], true) ? $_POST['captcha_mode'] : 'off';
         $db->setSetting('captcha_mode',         $cm);
         $db->setSetting('captcha_site_key',     trim($_POST['captcha_site_key'] ?? ''));
@@ -58,6 +59,7 @@ if (isset($_GET['test_webhook']) && isset($_GET['token']) && $auth->validateCsrf
 }
 
 $enforce2fa        = $db->getSetting('enforce_2fa_admins', '0') === '1';
+$sessionDriver     = $db->getSetting('session_driver', 'php');
 $captchaMode       = $db->getSetting('captcha_mode', 'off');
 $captchaSiteKey    = $db->getSetting('captcha_site_key', '');
 $captchaSecretSet  = $db->getSetting('captcha_secret', '') !== '';
@@ -121,6 +123,11 @@ label { display:block; font-size:14px; color:var(--text-secondary); margin:14px 
     <label class="chk"><input type="checkbox" name="enforce_2fa_admins" <?= $enforce2fa ? 'checked' : '' ?>> 2FA für Administratoren verpflichtend</label>
     <label>Tageslimit Voucher pro Nicht-Admin-Benutzer (0 = unbegrenzt)</label>
     <input class="input" type="number" min="0" name="user_daily_voucher_limit" value="<?= $dailyLimit ?>" style="max-width:200px;">
+    <label>Session-Speicher</label>
+    <select class="input" name="session_driver" style="max-width:240px;">
+        <option value="php" <?= $sessionDriver==='php'?'selected':'' ?>>PHP-Standard (Dateien)</option>
+        <option value="db"  <?= $sessionDriver==='db'?'selected':'' ?>>Datenbank (ermöglicht „überall abmelden")</option>
+    </select>
     <label>Captcha im öffentlichen Modus</label>
     <select class="input" name="captcha_mode" style="max-width:240px;">
         <option value="off"      <?= $captchaMode==='off'?'selected':'' ?>>Aus</option>

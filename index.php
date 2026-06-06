@@ -18,6 +18,7 @@ require_once __DIR__ . '/includes/UniFiController.php';
 require_once __DIR__ . '/includes/Mailer.php';
 require_once __DIR__ . '/includes/Notifier.php';
 require_once __DIR__ . '/includes/Captcha.php';
+require_once __DIR__ . '/includes/Sms.php';
 require_once __DIR__ . '/includes/I18n.php';
 
 $auth = new Auth();
@@ -185,11 +186,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_voucher'])) {
             $voucherCreated = true;
             Notifier::voucherCreated(1, $site['name'], $_SESSION['user_name'] ?? null);
 
+            $success = 'Voucher erfolgreich erstellt!';
             if ($sendEmail && !empty($recipientEmail)) {
                 $mailer->sendVoucherEmail($recipientEmail, $voucherCode, $site['name'], $maxUses);
-                $success = 'Voucher erstellt. E-Mail versendet.';
-            } else {
-                $success = 'Voucher erfolgreich erstellt!';
+                $success .= ' E-Mail versendet.';
+            }
+            // Optional: Code per SMS (Twilio)
+            $recipientPhone = trim((string)($_POST['recipient_phone'] ?? ''));
+            if (isset($_POST['send_sms']) && $recipientPhone !== '' && Sms::enabled($db)) {
+                $smsText = ($appTitle ? $appTitle . ': ' : '') . 'WLAN-Code ' . $voucherCode;
+                $success .= Sms::send($db, $recipientPhone, $smsText) ? ' SMS versendet.' : ' (SMS fehlgeschlagen)';
             }
         } catch (Exception $e) {
             $error = 'Fehler: ' . $e->getMessage();
@@ -251,6 +257,7 @@ $currentUser = $auth->isLoggedIn() ? $auth->getCurrentUser() : null;
 $captchaMode     = !$auth->isLoggedIn() ? Captcha::mode($db) : 'off';
 $captchaQuestion = $captchaMode === 'math' ? Captcha::newMathChallenge() : '';
 $hcaptchaSiteKey = $captchaMode === 'hcaptcha' ? $db->getSetting('captcha_site_key', '') : '';
+$smsEnabled = Sms::enabled($db);
 $captchaHtml = '';
 if ($captchaMode === 'math') {
     $captchaHtml = '<div class="form-group"><label>Sicherheitsfrage: Wie viel ist ' . htmlspecialchars($captchaQuestion) . '?</label>'
@@ -572,6 +579,19 @@ function buildPrintCard($template, $data, $instructionHeader, $instructionText, 
                             <input type="email" id="recipient_email" name="recipient_email"
                                    placeholder="<?= __('voucher_email_hint') ?>">
                         </div>
+                    </div>
+                </div>
+                <?php endif; ?>
+
+                <?php if ($smsEnabled): ?>
+                <div class="email-option">
+                    <div class="email-checkbox-wrapper">
+                        <input type="checkbox" id="send_sms" name="send_sms" onchange="document.getElementById('sms_field').style.display=this.checked?'block':'none'">
+                        <label for="send_sms">📱 Code per SMS versenden</label>
+                    </div>
+                    <div id="sms_field" style="display:none;margin-top:12px;">
+                        <label for="recipient_phone">Telefonnummer (international, z.B. +49170…)</label>
+                        <input type="tel" id="recipient_phone" name="recipient_phone" placeholder="+49170123456">
                     </div>
                 </div>
                 <?php endif; ?>

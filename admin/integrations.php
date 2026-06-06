@@ -28,6 +28,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
         $db->setSetting('captcha_mode',         $cm);
         $db->setSetting('captcha_site_key',     trim($_POST['captcha_site_key'] ?? ''));
         if (!empty($_POST['captcha_secret'])) { $db->setSetting('captcha_secret', trim($_POST['captcha_secret'])); }
+        $db->setSetting('sms_enabled',  isset($_POST['sms_enabled']) ? '1' : '0');
+        $db->setSetting('twilio_sid',   trim($_POST['twilio_sid'] ?? ''));
+        $db->setSetting('twilio_from',  trim($_POST['twilio_from'] ?? ''));
+        if (!empty($_POST['twilio_token'])) { $db->setSetting('twilio_token', trim($_POST['twilio_token'])); }
         $db->setSetting('user_daily_voucher_limit', max(0, (int)($_POST['user_daily_voucher_limit'] ?? 0)));
         $db->setSetting('trusted_proxy',        trim($_POST['trusted_proxy'] ?? ''));
         $db->setSetting('webhook_enabled',      isset($_POST['webhook_enabled']) ? '1' : '0');
@@ -49,6 +53,10 @@ $enforce2fa        = $db->getSetting('enforce_2fa_admins', '0') === '1';
 $captchaMode       = $db->getSetting('captcha_mode', 'off');
 $captchaSiteKey    = $db->getSetting('captcha_site_key', '');
 $captchaSecretSet  = $db->getSetting('captcha_secret', '') !== '';
+$smsEnabled        = $db->getSetting('sms_enabled', '0') === '1';
+$twilioSid         = $db->getSetting('twilio_sid', '');
+$twilioFrom        = $db->getSetting('twilio_from', '');
+$twilioTokenSet    = $db->getSetting('twilio_token', '') !== '';
 $dailyLimit        = (int)$db->getSetting('user_daily_voucher_limit', 0);
 $trustedProxy      = $db->getSetting('trusted_proxy', '');
 $webhookEnabled    = $db->getSetting('webhook_enabled', '0') === '1';
@@ -123,6 +131,17 @@ label { display:block; font-size:14px; color:var(--text-secondary); margin:14px 
     <input class="input" type="url" name="webhook_url" value="<?= htmlspecialchars($webhookUrl) ?>" placeholder="https://hooks.slack.com/services/…">
     <div style="margin-top:12px;">
         <a class="btn btn-secondary" href="?test_webhook=1&token=<?= urlencode($csrf) ?>">Test senden</a>
+    </div>
+</div>
+
+<div class="card">
+    <h2>SMS-Versand (Twilio)</h2>
+    <p class="muted">Voucher-Codes optional per SMS versenden. Erfordert ein Twilio-Konto.</p>
+    <label class="chk"><input type="checkbox" name="sms_enabled" <?= $smsEnabled ? 'checked' : '' ?>> SMS-Versand aktiv</label>
+    <div class="row3" style="margin-top:10px;">
+        <div><label>Account SID</label><input class="input" type="text" name="twilio_sid" value="<?= htmlspecialchars($twilioSid) ?>"></div>
+        <div><label>Auth Token<?= $twilioTokenSet ? ' (gesetzt)' : '' ?></label><input class="input" type="password" name="twilio_token" placeholder="<?= $twilioTokenSet ? '••••••• (leer = unverändert)' : '' ?>"></div>
+        <div><label>Absender (From)</label><input class="input" type="text" name="twilio_from" value="<?= htmlspecialchars($twilioFrom) ?>" placeholder="+49…"></div>
     </div>
 </div>
 

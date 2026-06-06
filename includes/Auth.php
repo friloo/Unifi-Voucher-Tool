@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/Totp.php';
 require_once __DIR__ . '/Notifier.php';
+require_once __DIR__ . '/Crypto.php';
 
 class Auth {
     private $db;
@@ -117,7 +118,8 @@ class Auth {
             return false;
         }
         // Entweder gueltiger TOTP-Code ODER ein Recovery-/Backup-Code
-        $ok = Totp::verify($user['totp_secret'], $code);
+        // (Secret wird verschluesselt gespeichert; Klartext-Fallback via decrypt)
+        $ok = Totp::verify(Crypto::decrypt($user['totp_secret']), $code);
         if (!$ok && $this->consumeBackupCode($user, $code)) {
             $ok = true;
             $this->writeAuditLog($user['id'], 'user_login_backup_code', 'user', $user['id'], 'Login per Recovery-Code');
@@ -143,7 +145,7 @@ class Auth {
         $hashes = array_map(function ($c) { return hash('sha256', $c); }, $codes);
         $this->db->query(
             "UPDATE users SET totp_secret = ?, totp_enabled = 1, totp_backup_codes = ? WHERE id = ?",
-            [$secret, json_encode($hashes), $userId]
+            [Crypto::encrypt($secret), json_encode($hashes), $userId]
         );
         $this->writeAuditLog($userId, 'totp_enabled', 'user', $userId, '2FA aktiviert');
         return $codes;

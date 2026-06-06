@@ -8,7 +8,7 @@
 ![MySQL](https://img.shields.io/badge/MySQL-5.7%2B%20%2F%20MariaDB-4479A1?logo=mysql&logoColor=white)
 ![UniFi OS](https://img.shields.io/badge/UniFi%20OS-7.0%2B-0559C9?logo=ubiquiti&logoColor=white)
 ![License](https://img.shields.io/badge/Lizenz-MIT-green)
-![Version](https://img.shields.io/badge/Version-2.3.0-blueviolet)
+![Version](https://img.shields.io/badge/Version-2.4.0-blueviolet)
 ![CI](https://github.com/friloo/unifi-voucher-tool/actions/workflows/ci.yml/badge.svg)
 
 </div>
@@ -36,7 +36,11 @@
 - 🔑 **Passwort-Reset** per E-Mail (token-basiert, zeitlich begrenzt)
 - 🚦 **Bandbreiten- & Datenlimits** pro Voucher/Profil (UniFi QoS)
 - 🧰 **REST-API mit API-Schlüsseln** – Scopes (read/write), Rate-Limit, OpenAPI-Spec
-- 🔔 **Webhooks** (Slack / Teams / generisch) bei Voucher-Erstellung
+- 🪪 **Single Sign-On** via generisches OpenID Connect (zusätzlich zu M365)
+- 📲 **SMS-Versand** der Codes (Twilio) · **CSV-Batch-Import** von Vouchern
+- 🤖 **CAPTCHA** (Rechenaufgabe oder hCaptcha) im öffentlichen Modus
+- 🗄️ **DB-gestützte Sessions** (opt-in) mit „überall abmelden"
+- 🔔 **Webhooks** (Slack / Teams / generisch) für Erstellung, Ausfälle, neue Login-IP
 - 🧹 **Auto-Cleanup & DSGVO** – Aufbewahrungsfristen per Cron
 - 💾 **Config-Backup & -Restore** (JSON Export/Import)
 - 🐳 **Docker** – Dockerfile + docker-compose (MariaDB)
@@ -379,6 +383,6 @@ setzen (`DB_*`, `APP_KEY`).
 
 <div align="center">
 
-**Version 2.3.0** · Autor: **Friederich Loheide** · Lizenz: **MIT**
+**Version 2.4.0** · Autor: **Friederich Loheide** · Lizenz: **MIT**
 
 </div>

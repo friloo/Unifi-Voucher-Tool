@@ -17,6 +17,7 @@ require_once __DIR__ . '/includes/Auth.php';
 require_once __DIR__ . '/includes/UniFiController.php';
 require_once __DIR__ . '/includes/Mailer.php';
 require_once __DIR__ . '/includes/Notifier.php';
+require_once __DIR__ . '/includes/Captcha.php';
 require_once __DIR__ . '/includes/I18n.php';
 
 $auth = new Auth();
@@ -151,6 +152,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_voucher'])) {
         $error = __('error_csrf');
     } elseif (!$auth->isLoggedIn() && isVoucherRateLimited()) {
         $error = 'Zu viele Anfragen. Bitte warten Sie einen Moment.';
+    } elseif (!$auth->isLoggedIn() && !Captcha::verify($db)) {
+        $error = 'Captcha-Prüfung fehlgeschlagen. Bitte erneut versuchen.';
     } else {
         try {
             $siteId        = (int)($_POST['site_id'] ?? 0);
@@ -203,6 +206,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_bulk'])) {
         $error = __('error_csrf');
     } elseif (!$auth->isLoggedIn() && isVoucherRateLimited()) {
         $error = 'Zu viele Anfragen. Bitte warten Sie einen Moment.';
+    } elseif (!$auth->isLoggedIn() && !Captcha::verify($db)) {
+        $error = 'Captcha-Prüfung fehlgeschlagen. Bitte erneut versuchen.';
     } else {
         try {
             $siteId        = (int)($_POST['site_id'] ?? 0);
@@ -242,6 +247,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_bulk'])) {
 
 $currentUser = $auth->isLoggedIn() ? $auth->getCurrentUser() : null;
 
+// Captcha nur für anonyme öffentliche Erstellung
+$captchaMode     = !$auth->isLoggedIn() ? Captcha::mode($db) : 'off';
+$captchaQuestion = $captchaMode === 'math' ? Captcha::newMathChallenge() : '';
+$hcaptchaSiteKey = $captchaMode === 'hcaptcha' ? $db->getSetting('captcha_site_key', '') : '';
+$captchaHtml = '';
+if ($captchaMode === 'math') {
+    $captchaHtml = '<div class="form-group"><label>Sicherheitsfrage: Wie viel ist ' . htmlspecialchars($captchaQuestion) . '?</label>'
+        . '<input type="text" name="captcha" inputmode="numeric" required></div>';
+} elseif ($captchaMode === 'hcaptcha' && $hcaptchaSiteKey !== '') {
+    $captchaHtml = '<div class="form-group"><div class="h-captcha" data-sitekey="' . htmlspecialchars($hcaptchaSiteKey) . '"></div></div>';
+}
+
 // Build print HTML for each voucher
 function buildPrintCard($template, $data, $instructionHeader, $instructionText, $appTitle) {
     $instructions = $instructionHeader || $instructionText
@@ -261,6 +278,9 @@ function buildPrintCard($template, $data, $instructionHeader, $instructionText, 
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= htmlspecialchars($appTitle) ?></title>
     <link rel="stylesheet" href="assets/global.css">
+    <?php if ($captchaMode === 'hcaptcha' && $hcaptchaSiteKey !== ''): ?>
+    <script src="https://js.hcaptcha.com/1/api.js" async defer></script>
+    <?php endif; ?>
     <script>(function(){ const t=localStorage.getItem('theme')||'light'; document.documentElement.setAttribute('data-theme',t); })();</script>
     <?php if ($voucherCreated): ?>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" integrity="sha512-CNgIRecGo7nphbeZ04Sc13ka07paqdeTu0WR1IM4kNcpmBAUSHSe2keRB6Q5pBUtIxCY7bQMsVB0ANBpd6JDg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
@@ -510,6 +530,7 @@ function buildPrintCard($template, $data, $instructionHeader, $instructionText, 
                 <input type="hidden" name="qos_down" class="qos-down-field" value="0">
                 <input type="hidden" name="qos_up" class="qos-up-field" value="0">
                 <input type="hidden" name="qos_quota" class="qos-quota-field" value="0">
+                <?= $captchaHtml ?>
 
                 <div class="form-group">
                     <label for="voucher_name"><?= __('voucher_name_label') ?></label>
@@ -570,6 +591,7 @@ function buildPrintCard($template, $data, $instructionHeader, $instructionText, 
                 <input type="hidden" name="qos_down" class="qos-down-field" value="0">
                 <input type="hidden" name="qos_up" class="qos-up-field" value="0">
                 <input type="hidden" name="qos_quota" class="qos-quota-field" value="0">
+                <?= $captchaHtml ?>
 
                 <div class="form-group">
                     <label for="bulk_count"><?= __('bulk_quantity') ?></label>

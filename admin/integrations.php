@@ -24,6 +24,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
         $error = __('error_csrf');
     } else {
         $db->setSetting('enforce_2fa_admins',   isset($_POST['enforce_2fa_admins']) ? '1' : '0');
+        $cm = in_array($_POST['captcha_mode'] ?? 'off', ['off','math','hcaptcha'], true) ? $_POST['captcha_mode'] : 'off';
+        $db->setSetting('captcha_mode',         $cm);
+        $db->setSetting('captcha_site_key',     trim($_POST['captcha_site_key'] ?? ''));
+        if (!empty($_POST['captcha_secret'])) { $db->setSetting('captcha_secret', trim($_POST['captcha_secret'])); }
         $db->setSetting('user_daily_voucher_limit', max(0, (int)($_POST['user_daily_voucher_limit'] ?? 0)));
         $db->setSetting('trusted_proxy',        trim($_POST['trusted_proxy'] ?? ''));
         $db->setSetting('webhook_enabled',      isset($_POST['webhook_enabled']) ? '1' : '0');
@@ -42,6 +46,9 @@ if (isset($_GET['test_webhook']) && isset($_GET['token']) && $auth->validateCsrf
 }
 
 $enforce2fa        = $db->getSetting('enforce_2fa_admins', '0') === '1';
+$captchaMode       = $db->getSetting('captcha_mode', 'off');
+$captchaSiteKey    = $db->getSetting('captcha_site_key', '');
+$captchaSecretSet  = $db->getSetting('captcha_secret', '') !== '';
 $dailyLimit        = (int)$db->getSetting('user_daily_voucher_limit', 0);
 $trustedProxy      = $db->getSetting('trusted_proxy', '');
 $webhookEnabled    = $db->getSetting('webhook_enabled', '0') === '1';
@@ -90,6 +97,16 @@ label { display:block; font-size:14px; color:var(--text-secondary); margin:14px 
     <label class="chk"><input type="checkbox" name="enforce_2fa_admins" <?= $enforce2fa ? 'checked' : '' ?>> 2FA für Administratoren verpflichtend</label>
     <label>Tageslimit Voucher pro Nicht-Admin-Benutzer (0 = unbegrenzt)</label>
     <input class="input" type="number" min="0" name="user_daily_voucher_limit" value="<?= $dailyLimit ?>" style="max-width:200px;">
+    <label>Captcha im öffentlichen Modus</label>
+    <select class="input" name="captcha_mode" style="max-width:240px;">
+        <option value="off"      <?= $captchaMode==='off'?'selected':'' ?>>Aus</option>
+        <option value="math"     <?= $captchaMode==='math'?'selected':'' ?>>Rechenaufgabe (ohne externen Dienst)</option>
+        <option value="hcaptcha" <?= $captchaMode==='hcaptcha'?'selected':'' ?>>hCaptcha</option>
+    </select>
+    <div class="row3" style="margin-top:10px;">
+        <div><label>hCaptcha Site-Key</label><input class="input" type="text" name="captcha_site_key" value="<?= htmlspecialchars($captchaSiteKey) ?>"></div>
+        <div><label>hCaptcha Secret<?= $captchaSecretSet ? ' (gesetzt)' : '' ?></label><input class="input" type="password" name="captcha_secret" placeholder="<?= $captchaSecretSet ? '••••••• (leer = unverändert)' : '' ?>"></div>
+    </div>
 </div>
 
 <div class="card">

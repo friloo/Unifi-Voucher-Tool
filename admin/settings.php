@@ -90,6 +90,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_settings'])) {
                     $settings['smtp_password'] = trim($_POST['smtp_password']);
                 }
                 $settings['smtp_encryption'] = trim($_POST['smtp_encryption'] ?? 'tls');
+                $settings['smtp_verify_ssl'] = isset($_POST['smtp_verify_ssl']) ? '1' : '0';
                 $settings['smtp_from_email'] = trim($_POST['smtp_from_email'] ?? '');
                 $settings['smtp_from_name'] = trim($_POST['smtp_from_name'] ?? '');
             }
@@ -204,6 +205,7 @@ $cs = [
     'smtp_username'                => $db->getSetting('smtp_username', ''),
     'smtp_password'                => $db->getSetting('smtp_password', ''),
     'smtp_encryption'              => $db->getSetting('smtp_encryption', 'tls'),
+    'smtp_verify_ssl'              => $db->getSetting('smtp_verify_ssl', '0'),
     'smtp_from_email'              => $db->getSetting('smtp_from_email', ''),
     'smtp_from_name'               => $db->getSetting('smtp_from_name', ''),
     'system_url'                   => $db->getSetting('system_url', $autoDetectedUrl),
@@ -427,6 +429,7 @@ $adminBase = '';
                     <div class="form-group"><label>Port</label><input type="number" name="smtp_port" value="<?= htmlspecialchars($cs['smtp_port']) ?>"></div>
                 </div>
                 <div class="form-group"><label>Verschlüsselung</label><select name="smtp_encryption"><option value="tls" <?= $cs['smtp_encryption']==='tls'?'selected':'' ?>>TLS</option><option value="ssl" <?= $cs['smtp_encryption']==='ssl'?'selected':'' ?>>SSL</option><option value="none" <?= $cs['smtp_encryption']==='none'?'selected':'' ?>>Keine</option></select></div>
+                <div class="checkbox-group" style="margin-bottom: 20px;"><input type="checkbox" name="smtp_verify_ssl" id="smtp_verify_ssl" <?= $cs['smtp_verify_ssl'] == '1' ? 'checked' : '' ?>><label for="smtp_verify_ssl" style="margin:0;"><?= __('smtp_verify_ssl') ?></label></div>
                 <div class="form-grid">
                     <div class="form-group"><label>Benutzername</label><input type="text" name="smtp_username" value="<?= htmlspecialchars($cs['smtp_username']) ?>"></div>
                     <div class="form-group"><label>Passwort</label><input type="password" name="smtp_password" placeholder="Leer = nicht ändern"></div>

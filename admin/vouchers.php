@@ -50,7 +50,7 @@ if (isset($_GET['ajax_get_vouchers']) && isset($_GET['site_id'])) {
         if (!$site) { echo json_encode(['success'=>false,'message'=>__('error_site_not_found')]); exit; }
         if ($syncFirst) {
             try {
-                $ctrl = new UniFiController($site['unifi_controller_url'],$site['unifi_username'],Crypto::decrypt($site['unifi_password']),$site['site_id']);
+                $ctrl = new UniFiController($site['unifi_controller_url'],$site['unifi_username'],Crypto::decrypt($site['unifi_password']),$site['site_id'],$site['ssl_verify'] ?? 0);
                 $ctrl->syncVouchersToDatabase($db,$siteId);
                 $db->execute("INSERT INTO settings (setting_key,setting_value) VALUES ('last_cron_sync',NOW()) ON DUPLICATE KEY UPDATE setting_value=NOW()");
             } catch (Exception $e) { error_log("Sync error: ".$e->getMessage()); }
@@ -89,7 +89,7 @@ if (isset($_POST['ajax_delete']) && isset($_POST['voucher_id']) && isset($_POST[
         $siteId    = (int)$_POST['site_id'];
         $site = $db->fetchOne("SELECT * FROM sites WHERE id=? AND is_active=1", [$siteId]);
         if (!$site) { echo json_encode(['success'=>false,'message'=>__('error_site_not_found')]); exit; }
-        $ctrl = new UniFiController($site['unifi_controller_url'],$site['unifi_username'],Crypto::decrypt($site['unifi_password']),$site['site_id']);
+        $ctrl = new UniFiController($site['unifi_controller_url'],$site['unifi_username'],Crypto::decrypt($site['unifi_password']),$site['site_id'],$site['ssl_verify'] ?? 0);
         if ($ctrl->deleteVoucher($voucherId)) {
             $db->execute("DELETE FROM vouchers WHERE unifi_voucher_id=? AND site_id=?", [$voucherId,$siteId]);
             echo json_encode(['success'=>true,'message'=>__('voucher_deleted')]);

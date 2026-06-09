@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS `sites` (
   `unifi_password` VARCHAR(255) NOT NULL,
   `is_active` TINYINT(1) DEFAULT 1,
   `public_access` TINYINT(1) DEFAULT 0,
+  `ssl_verify` TINYINT(1) NOT NULL DEFAULT 0,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX `idx_active` (`is_active`)

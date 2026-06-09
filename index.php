@@ -142,7 +142,8 @@ function doCreateVoucher($db, $site, $voucherName, $maxUses, $expireMinutes, $us
         $site['unifi_controller_url'],
         $site['unifi_username'],
         Crypto::decrypt($site['unifi_password']),
-        $site['site_id']
+        $site['site_id'],
+        $site['ssl_verify'] ?? 0
     );
     $voucher = $controller->createVoucher($fullName, $maxUses, $expireMinutes);
     if (!is_array($voucher) || empty($voucher['formatted_code'])) {
@@ -251,7 +252,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_bulk'])) {
                 $site['unifi_controller_url'],
                 $site['unifi_username'],
                 Crypto::decrypt($site['unifi_password']),
-                $site['site_id']
+                $site['site_id'],
+                $site['ssl_verify'] ?? 0
             );
             $created  = $controller->createVouchers($fullName, $maxUses, $expireMinutes, $bulkCount);
             $expiryTs = time() + ($expireMinutes * 60);

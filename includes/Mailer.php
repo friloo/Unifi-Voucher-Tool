@@ -7,6 +7,7 @@ class Mailer {
     private $smtpUsername;
     private $smtpPassword;
     private $smtpEncryption;
+    private $smtpVerifySsl;
     private $fromEmail;
     private $fromName;
     
@@ -22,6 +23,7 @@ class Mailer {
         $this->smtpUsername = $this->db->getSetting('smtp_username', '');
         $this->smtpPassword = $this->db->getSetting('smtp_password', '');
         $this->smtpEncryption = $this->db->getSetting('smtp_encryption', 'tls');
+        $this->smtpVerifySsl = $this->db->getSetting('smtp_verify_ssl', '0') === '1';
         $this->fromEmail = $this->db->getSetting('smtp_from_email', 'noreply@' . ($_SERVER['HTTP_HOST'] ?? 'localhost'));
         $this->fromName = $this->db->getSetting('smtp_from_name', $this->db->getSetting('app_title', 'UniFi Voucher System'));
     }
@@ -122,11 +124,12 @@ class Mailer {
     }
     
     private function connectToSmtp() {
+        // Zertifikatspruefung optional aktivierbar (Setting smtp_verify_ssl)
         $context = stream_context_create([
             'ssl' => [
-                'verify_peer' => false,
-                'verify_peer_name' => false,
-                'allow_self_signed' => true
+                'verify_peer' => $this->smtpVerifySsl,
+                'verify_peer_name' => $this->smtpVerifySsl,
+                'allow_self_signed' => !$this->smtpVerifySsl
             ]
         ]);
         

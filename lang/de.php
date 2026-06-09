@@ -334,6 +334,11 @@ return [
     'cron_token_deleted'    => 'Cron-Token wurde gelöscht!',
     'm365_secret_hint'      => 'Leer lassen = nicht ändern. Zum Deaktivieren des M365-Logins die Client ID leeren.',
 
+    // SSL-Verifizierung
+    'sites_ssl_verify'      => 'SSL-Zertifikat des Controllers prüfen',
+    'sites_ssl_verify_hint' => 'Nur aktivieren, wenn der Controller ein gültiges Zertifikat besitzt (UniFi nutzt standardmäßig self-signed).',
+    'smtp_verify_ssl'       => 'SSL-Zertifikat des SMTP-Servers prüfen',
+
     // Site connection test
     'site_test_btn'   => 'Verbindung testen',
     'site_test_ok'    => 'Verbindung erfolgreich',

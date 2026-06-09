@@ -174,7 +174,8 @@ try {
                 $site['unifi_controller_url'],
                 $site['unifi_username'],
                 Crypto::decrypt($site['unifi_password']),
-                $site['site_id']
+                $site['site_id'],
+                $site['ssl_verify'] ?? 0
             );
 
             $stats = $controller->syncVouchersToDatabase($db, $site['id']);

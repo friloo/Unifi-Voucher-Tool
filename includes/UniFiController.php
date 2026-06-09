@@ -10,12 +10,15 @@ class UniFiController {
     private $csrfToken = null;
     private $sessionCookie = null;
     private $loggedIn = false;
+    /** SSL-Zertifikat pruefen? Default aus, da UnifFi-Controller meist self-signed sind. */
+    private $sslVerify = false;
 
-    public function __construct($controllerUrl, $username, $password, $siteId) {
+    public function __construct($controllerUrl, $username, $password, $siteId, $sslVerify = false) {
         $this->controllerUrl = rtrim($controllerUrl, '/');
         $this->username = $username;
         $this->password = $password;
         $this->siteId = $siteId;
+        $this->sslVerify = (bool)$sslVerify;
         $this->cookieFile = tempnam(sys_get_temp_dir(), 'UNIFI_');
     }
     
@@ -41,7 +44,8 @@ class UniFiController {
                 'password' => $this->password
             ]),
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYPEER => $this->sslVerify,
+            CURLOPT_SSL_VERIFYHOST => $this->sslVerify ? 2 : 0,
             CURLOPT_COOKIEJAR => $this->cookieFile,
             CURLOPT_COOKIEFILE => $this->cookieFile,
             CURLOPT_TIMEOUT => 10,
@@ -116,7 +120,8 @@ class UniFiController {
         $options = [
             CURLOPT_URL => $url,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYPEER => $this->sslVerify,
+            CURLOPT_SSL_VERIFYHOST => $this->sslVerify ? 2 : 0,
             CURLOPT_TIMEOUT => 10,
             CURLOPT_CONNECTTIMEOUT => 5,
             CURLOPT_HTTPHEADER => $headers
@@ -325,9 +330,9 @@ class UniFiController {
     }
     
     // Verbindung testen
-    public static function testConnection($controllerUrl, $username, $password, $siteId) {
+    public static function testConnection($controllerUrl, $username, $password, $siteId, $sslVerify = false) {
         try {
-            $controller = new self($controllerUrl, $username, $password, $siteId);
+            $controller = new self($controllerUrl, $username, $password, $siteId, $sslVerify);
             $controller->login();
             return true;
         } catch (Exception $e) {

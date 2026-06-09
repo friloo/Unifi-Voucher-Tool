@@ -31,7 +31,7 @@ if (isset($_GET['ajax_stats'])) {
             @set_time_limit(30 + count($sites) * 20);
             foreach ($sites as $site) {
                 try {
-                    $ctrl = new UniFiController($site['unifi_controller_url'], $site['unifi_username'], Crypto::decrypt($site['unifi_password']), $site['site_id']);
+                    $ctrl = new UniFiController($site['unifi_controller_url'], $site['unifi_username'], Crypto::decrypt($site['unifi_password']), $site['site_id'], $site['ssl_verify'] ?? 0);
                     $ctrl->syncVouchersToDatabase($db, $site['id']);
                 } catch (Exception $e) {
                     $syncErrors[$site['id']] = $e->getMessage();

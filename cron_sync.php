@@ -117,7 +117,8 @@ if (empty($cronToken)) {
     exit;
 }
 
-if ($providedToken !== $cronToken) {
+// hash_equals: zeitkonstanter Vergleich (kein Timing-Seitenkanal)
+if (!hash_equals((string)$cronToken, (string)$providedToken)) {
     outputResponse([
         'success' => false,
         'message' => 'Ungültiger Token'
@@ -174,7 +175,8 @@ try {
                 $site['unifi_controller_url'],
                 $site['unifi_username'],
                 Crypto::decrypt($site['unifi_password']),
-                $site['site_id']
+                $site['site_id'],
+                $site['ssl_verify'] ?? 0
             );
 
             $stats = $controller->syncVouchersToDatabase($db, $site['id']);

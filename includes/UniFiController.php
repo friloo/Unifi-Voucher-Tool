@@ -10,12 +10,15 @@ class UniFiController {
     private $csrfToken = null;
     private $sessionCookie = null;
     private $loggedIn = false;
+    /** SSL-Zertifikat pruefen? Default aus, da UnifFi-Controller meist self-signed sind. */
+    private $sslVerify = false;
 
-    public function __construct($controllerUrl, $username, $password, $siteId) {
+    public function __construct($controllerUrl, $username, $password, $siteId, $sslVerify = false) {
         $this->controllerUrl = rtrim($controllerUrl, '/');
         $this->username = $username;
         $this->password = $password;
         $this->siteId = $siteId;
+        $this->sslVerify = (bool)$sslVerify;
         $this->cookieFile = tempnam(sys_get_temp_dir(), 'UNIFI_');
     }
     
@@ -41,7 +44,8 @@ class UniFiController {
                 'password' => $this->password
             ]),
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYPEER => $this->sslVerify,
+            CURLOPT_SSL_VERIFYHOST => $this->sslVerify ? 2 : 0,
             CURLOPT_COOKIEJAR => $this->cookieFile,
             CURLOPT_COOKIEFILE => $this->cookieFile,
             CURLOPT_TIMEOUT => 10,
@@ -116,7 +120,8 @@ class UniFiController {
         $options = [
             CURLOPT_URL => $url,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYPEER => $this->sslVerify,
+            CURLOPT_SSL_VERIFYHOST => $this->sslVerify ? 2 : 0,
             CURLOPT_TIMEOUT => 10,
             CURLOPT_CONNECTTIMEOUT => 5,
             CURLOPT_HTTPHEADER => $headers
@@ -155,13 +160,31 @@ class UniFiController {
         return json_decode($response, true);
     }
     
-    // Voucher erstellen
+    // Einzelnen Voucher erstellen
     // $options: optionale QoS-Limits ['down' => kbps, 'up' => kbps, 'quota_mb' => MB]
     public function createVoucher($voucherName, $maxUses, $expireMinutes = 480, $options = []) {
+        $vouchers = $this->createVouchers($voucherName, $maxUses, $expireMinutes, 1, $options);
+        return $vouchers[0];
+    }
+
+    /**
+     * Erstellt $count Voucher in EINEM API-Call (UniFi 'n'-Parameter) statt
+     * pro Voucher Login + Full-Fetch auszufuehren.
+     *
+     * Matching: Die create-voucher-Antwort liefert die create_time der neuen
+     * Voucher; darueber (plus note) werden exakt die soeben erstellten Codes
+     * identifiziert. Der fruehere Fallback "global neuester Voucher" konnte
+     * bei parallelen Erstellungen fremde Codes liefern und wurde entfernt.
+     *
+     * @param array $options Optionale QoS-Limits ['down' => kbps, 'up' => kbps, 'quota_mb' => MB]
+     * @return array Liste von ['code','formatted_code','unifi_id','create_time']
+     */
+    public function createVouchers($voucherName, $maxUses, $expireMinutes = 480, $count = 1, $options = []) {
+        $count = max(1, (int)$count);
         $data = [
             'cmd' => 'create-voucher',
             'expire' => (int)$expireMinutes,
-            'n' => 1,
+            'n' => $count,
             'note' => $voucherName,
             'quota' => (int)$maxUses
         ];
@@ -182,51 +205,51 @@ class UniFiController {
         if (!isset($response['data'][0]['create_time'])) {
             throw new Exception("Voucher konnte nicht erstellt werden");
         }
-        
-        // Voucher-Code abrufen. WICHTIG: getVouchers() liefert die Voucher
-        // unsortiert zurueck – ein blindes reset() kann bei parallelen
-        // Erstellungen den falschen (fremden) Code liefern. Daher gezielt
-        // nach dem soeben erstellten Voucher suchen: gleiche note + neueste
-        // create_time.
-        $vouchers = $this->getVouchers();
+        $createTime = $response['data'][0]['create_time'];
 
-        if (empty($vouchers)) {
-            throw new Exception("Voucher-Code konnte nicht abgerufen werden");
-        }
+        $all = $this->getVouchers();
 
-        $latestVoucher = null;
-        foreach ($vouchers as $voucher) {
-            // Nur Voucher mit passender Notiz beruecksichtigen
-            if (($voucher['note'] ?? null) !== $voucherName) {
-                continue;
-            }
-            if ($latestVoucher === null
-                || ($voucher['create_time'] ?? 0) > ($latestVoucher['create_time'] ?? 0)) {
-                $latestVoucher = $voucher;
+        // Exakte Treffer: gleiche note UND die vom Controller gemeldete create_time
+        $matches = [];
+        foreach ($all as $voucher) {
+            if (($voucher['note'] ?? null) === $voucherName
+                && ($voucher['create_time'] ?? null) == $createTime) {
+                $matches[] = $voucher;
             }
         }
 
-        // Fallback: falls keine note-Uebereinstimmung (z.B. Sonderzeichen),
-        // den global neuesten Voucher nehmen.
-        if ($latestVoucher === null) {
-            foreach ($vouchers as $voucher) {
-                if ($latestVoucher === null
-                    || ($voucher['create_time'] ?? 0) > ($latestVoucher['create_time'] ?? 0)) {
-                    $latestVoucher = $voucher;
+        // Fallback: nur note matchen (falls der Controller create_time leicht
+        // abweichend meldet), neueste zuerst, auf $count begrenzen.
+        if (empty($matches)) {
+            foreach ($all as $voucher) {
+                if (($voucher['note'] ?? null) === $voucherName) {
+                    $matches[] = $voucher;
                 }
             }
+            usort($matches, function ($a, $b) {
+                return ($b['create_time'] ?? 0) <=> ($a['create_time'] ?? 0);
+            });
+            $matches = array_slice($matches, 0, $count);
         }
 
-        if ($latestVoucher === null || empty($latestVoucher['code'])) {
+        $result = [];
+        foreach ($matches as $voucher) {
+            if (empty($voucher['code'])) {
+                continue;
+            }
+            $result[] = [
+                'code' => $voucher['code'],
+                'formatted_code' => $this->formatVoucherCode($voucher['code']),
+                'unifi_id' => $voucher['_id'] ?? null,
+                'create_time' => $voucher['create_time'] ?? null
+            ];
+        }
+
+        if (empty($result)) {
             throw new Exception("Voucher-Code konnte nicht abgerufen werden");
         }
 
-        return [
-            'code' => $latestVoucher['code'],
-            'formatted_code' => $this->formatVoucherCode($latestVoucher['code']),
-            'unifi_id' => $latestVoucher['_id'] ?? null,
-            'create_time' => $latestVoucher['create_time'] ?? null
-        ];
+        return $result;
     }
     
     // Alle Voucher abrufen
@@ -320,9 +343,9 @@ class UniFiController {
     }
     
     // Verbindung testen
-    public static function testConnection($controllerUrl, $username, $password, $siteId) {
+    public static function testConnection($controllerUrl, $username, $password, $siteId, $sslVerify = false) {
         try {
-            $controller = new self($controllerUrl, $username, $password, $siteId);
+            $controller = new self($controllerUrl, $username, $password, $siteId, $sslVerify);
             $controller->login();
             return true;
         } catch (Exception $e) {
@@ -351,17 +374,26 @@ class UniFiController {
         // Alle aktuellen UniFi-IDs sammeln
         $unifiIds = [];
 
+        // Bestehende Voucher der Site einmal als Map laden statt pro Voucher
+        // ein SELECT auszufuehren (halbiert die Query-Anzahl bei grossen Syncs)
+        $existingRows = $db->fetchAll(
+            "SELECT id, unifi_voucher_id FROM vouchers WHERE site_id = ? AND unifi_voucher_id IS NOT NULL",
+            [$dbSiteId]
+        );
+        $existingMap = [];
+        foreach ($existingRows as $row) {
+            $existingMap[$row['unifi_voucher_id']] = $row['id'];
+        }
+
         foreach ($vouchers as $voucher) {
             $unifiIds[] = $voucher['_id'];
 
             // Status zählen
             $stats[$voucher['status']]++;
 
-            // Prüfen ob Voucher bereits existiert
-            $existing = $db->fetchOne(
-                "SELECT id, status, used_count FROM vouchers WHERE unifi_voucher_id = ? AND site_id = ?",
-                [$voucher['_id'], $dbSiteId]
-            );
+            $existing = isset($existingMap[$voucher['_id']])
+                ? ['id' => $existingMap[$voucher['_id']]]
+                : null;
 
             $expiresAt = date('Y-m-d H:i:s', $voucher['expire_time']);
             $createdAt = date('Y-m-d H:i:s', $voucher['create_time']);

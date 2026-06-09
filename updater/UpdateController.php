@@ -17,12 +17,15 @@ class UpdateController
     private $auth;
     /** @var UpdateManager */
     private $manager;
+    /** @var AuditLogger */
+    private $audit;
 
     public function __construct(\Database $db, \Auth $auth)
     {
         $this->db = $db;
         $this->auth = $auth;
-        $this->manager = UpdaterFactory::create($db, new AuditLogger($db));
+        $this->audit = new AuditLogger($db);
+        $this->manager = UpdaterFactory::create($db, $this->audit);
     }
 
     public function handle(): void

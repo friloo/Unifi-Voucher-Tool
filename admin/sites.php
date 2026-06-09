@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/Database.php';
 require_once __DIR__ . '/../includes/Auth.php';
 require_once __DIR__ . '/../includes/UniFiController.php';
 require_once __DIR__ . '/../includes/I18n.php';
+require_once __DIR__ . '/../includes/Helpers.php';
 
 $auth = new Auth();
 $auth->requireAdmin();
@@ -17,6 +18,32 @@ I18n::init();
 
 $error   = '';
 $success = '';
+
+// AJAX: Verbindungstest mit gespeicherten Zugangsdaten (Health-Check pro Site)
+if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['ajax_test_site'])) {
+    header('Content-Type: application/json');
+    if (!$auth->validateCsrfToken($_POST['csrf_token'] ?? '')) {
+        echo json_encode(['success' => false, 'message' => __('error_csrf')]);
+        exit;
+    }
+    $site = $db->fetchOne("SELECT * FROM sites WHERE id=?", [(int)$_POST['ajax_test_site']]);
+    if (!$site) {
+        echo json_encode(['success' => false, 'message' => __('error_site_not_found')]);
+        exit;
+    }
+    $test = UniFiController::testConnection(
+        $site['unifi_controller_url'],
+        $site['unifi_username'],
+        Crypto::decrypt($site['unifi_password']),
+        $site['site_id'],
+        $site['ssl_verify'] ?? 0
+    );
+    echo json_encode([
+        'success' => $test === true,
+        'message' => $test === true ? __('site_test_ok') : __('site_test_fail') . ': ' . $test,
+    ]);
+    exit;
+}
 
 // Edit site
 if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['edit_site'])) {
@@ -31,18 +58,27 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['edit_site'])) {
             $username      = trim($_POST['username']);
             $password      = $_POST['password'];
             $publicAccess  = isset($_POST['public_access']) ? 1 : 0;
+            $sslVerify     = isset($_POST['ssl_verify']) ? 1 : 0;
             if (empty($name)||empty($siteIdStr)||empty($controllerUrl)||empty($username)) throw new Exception(__('error_fill_all'));
             if (!empty($password)) {
-                $test = UniFiController::testConnection($controllerUrl,$username,$password,$siteIdStr);
-                if ($test !== true) throw new Exception('Verbindung fehlgeschlagen: '.$test);
-                $db->execute("UPDATE sites SET name=?,site_id=?,unifi_controller_url=?,unifi_username=?,unifi_password=?,public_access=? WHERE id=?",
-                    [$name,$siteIdStr,$controllerUrl,$username,Crypto::encrypt($password),$publicAccess,$siteId]);
+                $test = UniFiController::testConnection($controllerUrl,$username,$password,$siteIdStr,$sslVerify);
+                if ($test !== true) throw new Exception(__('site_test_fail').': '.$test);
+                $db->execute("UPDATE sites SET name=?,site_id=?,unifi_controller_url=?,unifi_username=?,unifi_password=?,public_access=?,ssl_verify=? WHERE id=?",
+                    [$name,$siteIdStr,$controllerUrl,$username,Crypto::encrypt($password),$publicAccess,$sslVerify,$siteId]);
             } else {
-                $db->execute("UPDATE sites SET name=?,site_id=?,unifi_controller_url=?,unifi_username=?,public_access=? WHERE id=?",
-                    [$name,$siteIdStr,$controllerUrl,$username,$publicAccess,$siteId]);
+                // Auch ohne Passwortaenderung testen (mit gespeichertem Passwort) –
+                // sonst fallen Tippfehler in URL/Username erst beim naechsten Voucher auf.
+                $stored = $db->fetchOne("SELECT unifi_password FROM sites WHERE id=?", [$siteId]);
+                if (!$stored) throw new Exception(__('error_site_not_found'));
+                $test = UniFiController::testConnection($controllerUrl,$username,Crypto::decrypt($stored['unifi_password']),$siteIdStr,$sslVerify);
+                if ($test !== true) throw new Exception(__('site_test_fail').': '.$test);
+                $db->execute("UPDATE sites SET name=?,site_id=?,unifi_controller_url=?,unifi_username=?,public_access=?,ssl_verify=? WHERE id=?",
+                    [$name,$siteIdStr,$controllerUrl,$username,$publicAccess,$sslVerify,$siteId]);
             }
             $auth->writeAuditLog($_SESSION['user_id'],'site_edit','site',$siteId,"Site {$name} aktualisiert");
-            $success = __('sites_updated');
+            flashSet(__('sites_updated'));
+            header('Location: sites.php');
+            exit;
         } catch (Exception $e) { $error = $e->getMessage(); }
     }
 }
@@ -59,36 +95,47 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['add_site'])) {
             $username      = trim($_POST['username']);
             $password      = $_POST['password'];
             $publicAccess  = isset($_POST['public_access']) ? 1 : 0;
+            $sslVerify     = isset($_POST['ssl_verify']) ? 1 : 0;
             if (empty($name)||empty($siteId)||empty($controllerUrl)||empty($username)) throw new Exception(__('error_fill_all'));
-            $test = UniFiController::testConnection($controllerUrl,$username,$password,$siteId);
-            if ($test !== true) throw new Exception('Verbindung fehlgeschlagen: '.$test);
-            $newId = $db->execute("INSERT INTO sites (name,site_id,unifi_controller_url,unifi_username,unifi_password,public_access) VALUES (?,?,?,?,?,?)",
-                [$name,$siteId,$controllerUrl,$username,Crypto::encrypt($password),$publicAccess]);
+            $test = UniFiController::testConnection($controllerUrl,$username,$password,$siteId,$sslVerify);
+            if ($test !== true) throw new Exception(__('site_test_fail').': '.$test);
+            $newId = $db->execute("INSERT INTO sites (name,site_id,unifi_controller_url,unifi_username,unifi_password,public_access,ssl_verify) VALUES (?,?,?,?,?,?,?)",
+                [$name,$siteId,$controllerUrl,$username,Crypto::encrypt($password),$publicAccess,$sslVerify]);
             $auth->writeAuditLog($_SESSION['user_id'],'site_create','site',$newId,"Site {$name} erstellt");
-            $success = __('sites_added');
+            flashSet(__('sites_added'));
+            header('Location: sites.php');
+            exit;
         } catch (Exception $e) { $error = $e->getMessage(); }
     }
 }
 
-// Delete site
-if (isset($_GET['delete']) && isset($_GET['token'])) {
-    if ($auth->validateCsrfToken($_GET['token'])) {
-        $delId = (int)$_GET['delete'];
+// Delete site (POST + PRG)
+if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['delete_site'])) {
+    if ($auth->validateCsrfToken($_POST['csrf_token'] ?? '')) {
+        $delId = (int)$_POST['delete_site'];
         $db->query("DELETE FROM sites WHERE id=?", [$delId]);
         $auth->writeAuditLog($_SESSION['user_id'],'site_delete','site',$delId,'Site gelöscht');
-        $success = __('sites_deleted');
+        flashSet(__('sites_deleted'));
+        header('Location: sites.php');
+        exit;
     } else { $error = __('error_csrf'); }
 }
 
-// Toggle site
-if (isset($_GET['toggle']) && isset($_GET['token'])) {
-    if ($auth->validateCsrfToken($_GET['token'])) {
-        $site = $db->fetchOne("SELECT is_active FROM sites WHERE id=?", [(int)$_GET['toggle']]);
+// Toggle site (POST + PRG)
+if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['toggle_site'])) {
+    if ($auth->validateCsrfToken($_POST['csrf_token'] ?? '')) {
+        $site = $db->fetchOne("SELECT is_active FROM sites WHERE id=?", [(int)$_POST['toggle_site']]);
         if ($site) {
-            $db->query("UPDATE sites SET is_active=? WHERE id=?", [$site['is_active']?0:1,(int)$_GET['toggle']]);
-            $success = 'Site-Status aktualisiert!';
+            $db->query("UPDATE sites SET is_active=? WHERE id=?", [$site['is_active']?0:1,(int)$_POST['toggle_site']]);
+            flashSet(__('sites_status_updated'));
+            header('Location: sites.php');
+            exit;
         }
     } else { $error = __('error_csrf'); }
+}
+
+if (empty($success) && empty($error) && ($flash = flashGet())) {
+    $success = $flash['message'];
 }
 
 $sites = $db->fetchAll("SELECT * FROM sites ORDER BY name");
@@ -104,9 +151,6 @@ $currentPage = 'sites';
 <style>
     .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; flex-wrap: wrap; gap: 12px; }
     .page-title { font-size: 26px; font-weight: 700; color: var(--text-primary); }
-    .alert { padding: 13px 18px; border-radius: 10px; font-size: 14px; margin-bottom: 20px; }
-    .alert-error   { background: #fee; border: 1px solid #fcc; color: #c33; }
-    .alert-success { background: #efe; border: 1px solid #cfc; color: #3c3; }
     .sites-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 18px; }
     .site-card { background: var(--bg-card); border: 2px solid var(--border-color); border-radius: 14px; padding: 20px; transition: border-color .2s, box-shadow .2s; }
     .site-card:hover { border-color: var(--accent); box-shadow: 0 4px 14px rgba(102,126,234,.15); }
@@ -116,10 +160,6 @@ $currentPage = 'sites';
     .site-info { margin: 14px 0; font-size: 13px; color: var(--text-secondary); }
     .site-info-item { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
     .site-actions { display: flex; gap: 7px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border-color); flex-wrap: wrap; }
-    .badge { display: inline-block; padding: 3px 9px; border-radius: 5px; font-size: 11px; font-weight: 500; margin: 2px; }
-    .badge-success { background: #d4edda; color: #155724; }
-    .badge-warning { background: #fff3cd; color: #856404; }
-    .badge-info    { background: var(--bg-badge-info); color: var(--text-badge-info); }
     .btn { padding: 8px 15px; border-radius: 8px; border: none; font-weight: 500; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 7px; transition: all .2s; font-size: 13px; }
     .btn-primary { background: var(--accent); color: white; }
     .btn-primary:hover { background: var(--accent-hover); }
@@ -200,20 +240,31 @@ $currentPage = 'sites';
             </div>
         </div>
         <div class="site-actions">
-            <button onclick="openEditModal(<?= $site['id'] ?>, '<?= htmlspecialchars($site['name'], ENT_QUOTES) ?>', '<?= htmlspecialchars($site['site_id'], ENT_QUOTES) ?>', '<?= htmlspecialchars($site['unifi_controller_url'], ENT_QUOTES) ?>', '<?= htmlspecialchars($site['unifi_username'], ENT_QUOTES) ?>', <?= $site['public_access'] ?>)"
+            <button onclick="openEditModal(<?= $site['id'] ?>, '<?= htmlspecialchars($site['name'], ENT_QUOTES) ?>', '<?= htmlspecialchars($site['site_id'], ENT_QUOTES) ?>', '<?= htmlspecialchars($site['unifi_controller_url'], ENT_QUOTES) ?>', '<?= htmlspecialchars($site['unifi_username'], ENT_QUOTES) ?>', <?= $site['public_access'] ?>, <?= (int)($site['ssl_verify'] ?? 0) ?>)"
                     class="btn btn-secondary btn-sm">
                 <i class="fas fa-edit"></i> <?= __('btn_edit') ?>
             </button>
-            <a href="?toggle=<?= $site['id'] ?>&token=<?= $auth->getCsrfToken() ?>"
-               class="btn btn-secondary btn-sm">
-                <i class="fas fa-<?= $site['is_active'] ? 'pause' : 'play' ?>"></i>
-                <?= $site['is_active'] ? __('sites_deactivate') : __('sites_activate') ?>
-            </a>
-            <a href="?delete=<?= $site['id'] ?>&token=<?= $auth->getCsrfToken() ?>"
-               class="btn btn-danger btn-sm"
-               onclick="return confirm('Möchten Sie diese Site wirklich löschen?')">
-                <i class="fas fa-trash"></i>
-            </a>
+            <form method="post" style="display:inline;">
+                <input type="hidden" name="csrf_token" value="<?= $auth->getCsrfToken() ?>">
+                <input type="hidden" name="toggle_site" value="<?= $site['id'] ?>">
+                <button type="submit" class="btn btn-secondary btn-sm">
+                    <i class="fas fa-<?= $site['is_active'] ? 'pause' : 'play' ?>"></i>
+                    <?= $site['is_active'] ? __('sites_deactivate') : __('sites_activate') ?>
+                </button>
+            </form>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="testSite(<?= $site['id'] ?>, this)"
+                    title="<?= __('site_test_btn') ?>" aria-label="<?= __('site_test_btn') ?>">
+                <i class="fas fa-plug"></i>
+            </button>
+            <form method="post" style="display:inline;"
+                  onsubmit="return confirm('<?= addslashes(__('confirm_delete_site')) ?>')">
+                <input type="hidden" name="csrf_token" value="<?= $auth->getCsrfToken() ?>">
+                <input type="hidden" name="delete_site" value="<?= $site['id'] ?>">
+                <button type="submit" class="btn btn-danger btn-sm"
+                        title="<?= __('btn_delete') ?>" aria-label="<?= __('btn_delete') ?>">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </form>
         </div>
     </div>
     <?php endforeach; ?>
@@ -261,6 +312,11 @@ $currentPage = 'sites';
                     <input type="checkbox" id="add_public" name="public_access">
                     <label for="add_public" style="margin:0;"><?= __('sites_public') ?></label>
                 </div>
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" id="add_ssl_verify" name="ssl_verify">
+                    <label for="add_ssl_verify" style="margin:0;"><?= __('sites_ssl_verify') ?></label>
+                </div>
+                <small style="color:var(--text-muted);font-size:12px;display:block;margin-top:-10px;margin-bottom:14px;"><?= __('sites_ssl_verify_hint') ?></small>
                 <div style="display:flex;gap:10px;margin-top:20px;">
                     <button type="submit" class="btn btn-primary" style="flex:1;" id="addSiteSubmitBtn">
                         <i class="fas fa-save"></i> <?= __('sites_add') ?>
@@ -311,6 +367,11 @@ $currentPage = 'sites';
                     <input type="checkbox" id="edit_public_access" name="public_access">
                     <label for="edit_public_access" style="margin:0;"><?= __('sites_public') ?></label>
                 </div>
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" id="edit_ssl_verify" name="ssl_verify">
+                    <label for="edit_ssl_verify" style="margin:0;"><?= __('sites_ssl_verify') ?></label>
+                </div>
+                <small style="color:var(--text-muted);font-size:12px;display:block;margin-top:-10px;margin-bottom:14px;"><?= __('sites_ssl_verify_hint') ?></small>
                 <div style="display:flex;gap:10px;margin-top:20px;">
                     <button type="submit" class="btn btn-primary" style="flex:1;" id="editSiteSubmitBtn">
                         <i class="fas fa-save"></i> <?= __('btn_save') ?>
@@ -328,7 +389,7 @@ $currentPage = 'sites';
 function openModal() { document.getElementById('addSiteModal').classList.add('active'); }
 function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
-function openEditModal(id, name, siteIdStr, controllerUrl, username, publicAccess) {
+function openEditModal(id, name, siteIdStr, controllerUrl, username, publicAccess, sslVerify) {
     document.getElementById('edit_site_id').value         = id;
     document.getElementById('edit_name').value            = name;
     document.getElementById('edit_site_id_str').value     = siteIdStr;
@@ -336,6 +397,7 @@ function openEditModal(id, name, siteIdStr, controllerUrl, username, publicAcces
     document.getElementById('edit_username').value        = username;
     document.getElementById('edit_password').value        = '';
     document.getElementById('edit_public_access').checked = publicAccess == 1;
+    document.getElementById('edit_ssl_verify').checked    = sslVerify == 1;
     document.getElementById('editSiteModal').classList.add('active');
 }
 
@@ -355,6 +417,23 @@ document.getElementById('editSiteForm').addEventListener('submit', function() {
         if (e.target === this) closeModal(id);
     });
 });
+
+async function testSite(siteId, btn) {
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    try {
+        const fd = new FormData();
+        fd.append('ajax_test_site', siteId);
+        fd.append('csrf_token', '<?= $auth->getCsrfToken() ?>');
+        const result = await fetch('sites.php', { method: 'POST', body: fd }).then(r => r.json());
+        showToast(result.success ? 'success' : 'error', '<?= addslashes(__('site_test_btn')) ?>', result.message);
+    } catch (e) {
+        showToast('error', '<?= addslashes(__('site_test_btn')) ?>', e.message);
+    }
+    btn.disabled = false;
+    btn.innerHTML = original;
+}
 </script>
 </body>
 </html>

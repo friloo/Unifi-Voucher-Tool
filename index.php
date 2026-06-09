@@ -20,6 +20,7 @@ require_once __DIR__ . '/includes/Notifier.php';
 require_once __DIR__ . '/includes/Captcha.php';
 require_once __DIR__ . '/includes/Sms.php';
 require_once __DIR__ . '/includes/I18n.php';
+require_once __DIR__ . '/includes/Helpers.php';
 
 $auth = new Auth();
 $db = Database::getInstance();
@@ -27,25 +28,66 @@ $mailer = new Mailer();
 I18n::init();
 
 /**
- * Session-basierter Throttle fuer die anonyme oeffentliche Voucher-Erstellung.
- * Erlaubt max. 10 Erstellungen in 10 Minuten pro Session. Verhindert, dass
- * der oeffentliche Modus zum Spammen des UniFi-Controllers missbraucht wird.
+ * Throttle fuer die anonyme oeffentliche Voucher-Erstellung:
+ * max. 10 Voucher in 10 Minuten. Primaer IP-basiert ueber die Tabelle
+ * request_throttle (laesst sich nicht per Cookie-Loeschen umgehen);
+ * Fallback auf den Session-Zaehler, falls die Tabelle auf einer alten
+ * Installation noch fehlt (Migration 0002 nicht gelaufen).
  */
-function isVoucherRateLimited() {
-    $window = 600;   // 10 Minuten
-    $maxRequests = 10;
+function isVoucherRateLimited($db, $voucherCount = 1) {
+    $window = 600;       // 10 Minuten
+    $maxVouchers = 10;
+
+    $limited = throttleHit($db, 'voucher_create', $maxVouchers, 10, $voucherCount);
+    if ($limited !== null) {
+        return $limited;
+    }
+    // Tabelle existiert noch nicht (Migration 0002 nicht gelaufen)
+    // -> Session-Fallback (Legacy-Verhalten)
     $now = time();
     $timestamps = $_SESSION['voucher_create_times'] ?? [];
     $timestamps = array_values(array_filter($timestamps, function ($t) use ($now, $window) {
         return ($now - $t) < $window;
     }));
-    if (count($timestamps) >= $maxRequests) {
+    if (count($timestamps) + $voucherCount > $maxVouchers) {
         $_SESSION['voucher_create_times'] = $timestamps;
         return true;
     }
-    $timestamps[] = $now;
+    for ($i = 0; $i < $voucherCount; $i++) {
+        $timestamps[] = $now;
+    }
     $_SESSION['voucher_create_times'] = $timestamps;
     return false;
+}
+
+/**
+ * Validiert die Voucher-Gueltigkeit (Minuten). Anonyme Nutzer duerfen nur den
+ * konfigurierten Default oder Werte aktiver Templates verwenden – das Feld ist
+ * ein Hidden-Input und damit beliebig manipulierbar. Eingeloggte Nutzer werden
+ * auf maximal 1 Jahr begrenzt.
+ */
+function sanitizeExpireMinutes($expireMinutes, $isLoggedIn, $templates, $defaultExpire) {
+    $expireMinutes = (int)$expireMinutes;
+    if ($isLoggedIn) {
+        return max(1, min(525600, $expireMinutes));
+    }
+    $allowed = array_map(function ($t) { return (int)$t['expire_minutes']; }, $templates);
+    $allowed[] = $defaultExpire;
+    return in_array($expireMinutes, $allowed, true) ? $expireMinutes : $defaultExpire;
+}
+
+/** Minuten menschenlesbar formatieren (z.B. 480 -> "8 Stunden"). */
+function formatDuration($minutes) {
+    $minutes = (int)$minutes;
+    if ($minutes >= 1440 && $minutes % 1440 === 0) {
+        $days = $minutes / 1440;
+        return $days === 1 ? __('dur_day_one') : __('dur_days', ['n' => $days]);
+    }
+    if ($minutes >= 60 && $minutes % 60 === 0) {
+        $hours = $minutes / 60;
+        return $hours === 1 ? __('dur_hour_one') : __('dur_hours', ['n' => $hours]);
+    }
+    return __('dur_minutes', ['n' => $minutes]);
 }
 
 /**
@@ -70,6 +112,7 @@ function userDailyLimitExceeded($db, $auth, $additional = 1) {
 
 $appTitle          = $db->getSetting('app_title', 'UniFi Voucher System');
 $logoUrl           = $db->getSetting('logo_url', '');
+$faviconUrl        = $db->getSetting('favicon_url', '');
 $instructionHeader = $db->getSetting('instruction_header', '');
 $instructionText   = $db->getSetting('instruction_text', '');
 $publicAccess      = $db->getSetting('public_access', 0);
@@ -122,7 +165,8 @@ function doCreateVoucher($db, $site, $voucherName, $maxUses, $expireMinutes, $us
         $site['unifi_controller_url'],
         $site['unifi_username'],
         Crypto::decrypt($site['unifi_password']),
-        $site['site_id']
+        $site['site_id'],
+        $site['ssl_verify'] ?? 0
     );
     $voucher = $controller->createVoucher($fullName, $maxUses, $expireMinutes, $qos);
     if (!is_array($voucher) || empty($voucher['formatted_code'])) {
@@ -151,8 +195,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_voucher'])) {
     } elseif (!$auth->validateCsrfToken($_POST['csrf_token'] ?? '')) {
         // CSRF fuer ALLE (auch anonyme oeffentliche Erstellung)
         $error = __('error_csrf');
-    } elseif (!$auth->isLoggedIn() && isVoucherRateLimited()) {
-        $error = 'Zu viele Anfragen. Bitte warten Sie einen Moment.';
+    } elseif (!$auth->isLoggedIn() && isVoucherRateLimited($db)) {
+        $error = __('error_rate_limited');
     } elseif (!$auth->isLoggedIn() && !Captcha::verify($db)) {
         $error = 'Captcha-Prüfung fehlgeschlagen. Bitte erneut versuchen.';
     } else {
@@ -160,7 +204,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_voucher'])) {
             $siteId        = (int)($_POST['site_id'] ?? 0);
             $voucherName   = trim((string)($_POST['voucher_name'] ?? ''));
             $maxUses       = (int)($_POST['max_uses'] ?? $defaultMaxUses);
-            $expireMinutes = max(1, (int)($_POST['expire_minutes'] ?? $defaultExpire));
+            $expireMinutes = sanitizeExpireMinutes($_POST['expire_minutes'] ?? $defaultExpire, $auth->isLoggedIn(), $templates, $defaultExpire);
             $sendEmail     = isset($_POST['send_email']) && !empty($_POST['recipient_email']);
             $recipientEmail= trim((string)($_POST['recipient_email'] ?? ''));
 
@@ -186,10 +230,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_voucher'])) {
             $voucherCreated = true;
             Notifier::voucherCreated(1, $site['name'], $_SESSION['user_name'] ?? null);
 
-            $success = 'Voucher erfolgreich erstellt!';
             if ($sendEmail && !empty($recipientEmail)) {
                 $mailer->sendVoucherEmail($recipientEmail, $voucherCode, $site['name'], $maxUses);
-                $success .= ' E-Mail versendet.';
+                $success = __('voucher_created_mail');
+            } else {
+                $success = __('voucher_created_ok');
             }
             // Optional: Code per SMS (Twilio)
             $recipientPhone = trim((string)($_POST['recipient_phone'] ?? ''));
@@ -197,61 +242,127 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_voucher'])) {
                 $smsText = ($appTitle ? $appTitle . ': ' : '') . 'WLAN-Code ' . $voucherCode;
                 $success .= Sms::send($db, $recipientPhone, $smsText) ? ' SMS versendet.' : ' (SMS fehlgeschlagen)';
             }
+
+            $auth->writeAuditLog($userId, 'voucher_create', 'voucher', null,
+                "Voucher '{$voucherName}' für {$site['name']}" . ($userId === null ? ' (öffentlich)' : ''));
+
+            // PRG-Pattern: Redirect nach erfolgreichem POST, damit ein Reload
+            // (F5) keinen Duplikat-Voucher erzeugt. Ergebnis via Session-Flash.
+            $_SESSION['voucher_flash'] = ['type' => 'single', 'data' => $voucherData, 'success' => $success];
+            header('Location: index.php?created=1');
+            exit;
         } catch (Exception $e) {
             $error = 'Fehler: ' . $e->getMessage();
         }
     }
 }
 
-// Bulk voucher creation
+// Bulk voucher creation – nur fuer eingeloggte Nutzer. Das Formular wird
+// Anonymen zwar nicht angezeigt, der POST-Endpunkt muss es aber ebenfalls
+// serverseitig erzwingen (sonst 20 Voucher pro Request im Public-Modus).
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['create_bulk'])) {
-    if (!$publicAccess && !$auth->isLoggedIn()) {
+    if (!$auth->isLoggedIn()) {
         $error = __('error_login_req');
     } elseif (!$auth->validateCsrfToken($_POST['csrf_token'] ?? '')) {
-        // CSRF fuer ALLE (auch anonyme oeffentliche Erstellung)
         $error = __('error_csrf');
-    } elseif (!$auth->isLoggedIn() && isVoucherRateLimited()) {
-        $error = 'Zu viele Anfragen. Bitte warten Sie einen Moment.';
-    } elseif (!$auth->isLoggedIn() && !Captcha::verify($db)) {
-        $error = 'Captcha-Prüfung fehlgeschlagen. Bitte erneut versuchen.';
     } else {
         try {
             $siteId        = (int)($_POST['site_id'] ?? 0);
             $voucherName   = trim((string)($_POST['voucher_name'] ?? ''));
             $maxUses       = (int)($_POST['max_uses'] ?? $defaultMaxUses);
-            $expireMinutes = max(1, (int)($_POST['expire_minutes'] ?? $defaultExpire));
+            $expireMinutes = sanitizeExpireMinutes($_POST['expire_minutes'] ?? $defaultExpire, true, $templates, $defaultExpire);
             $bulkCount     = max(1, min(20, (int)($_POST['bulk_count'] ?? 1)));
 
             if (empty($voucherName)) throw new Exception(__('error_name_req'));
             if ($maxUses < 1 || $maxUses > $maxUsesLimit) throw new Exception(__('error_devices_range', ['max' => $maxUsesLimit]));
             if ($siteId <= 0) throw new Exception(__('error_site_req'));
-            if ($auth->isLoggedIn() && !$auth->hasAccessToSite($siteId)) throw new Exception(__('error_site_no_perm'));
+            if (!$auth->hasAccessToSite($siteId)) throw new Exception(__('error_site_no_perm'));
             if (userDailyLimitExceeded($db, $auth, $bulkCount)) throw new Exception('Tageslimit für Voucher erreicht.');
 
             $site = $db->fetchOne("SELECT * FROM sites WHERE id = ? AND is_active = 1", [$siteId]);
             if (!$site) throw new Exception(__('error_site_not_found'));
 
-            $userId = $auth->isLoggedIn() ? ($_SESSION['user_id'] ?? null) : null;
+            $userId = $_SESSION['user_id'] ?? null;
             $qos = [
                 'down'     => max(0, (int)($_POST['qos_down'] ?? 0)),
                 'up'       => max(0, (int)($_POST['qos_up'] ?? 0)),
                 'quota_mb' => max(0, (int)($_POST['qos_quota'] ?? 0)),
             ];
 
-            for ($i = 0; $i < $bulkCount; $i++) {
-                $bulkVouchers[] = doCreateVoucher($db, $site, $voucherName . '_' . ($i + 1), $maxUses, $expireMinutes, $userId, $qos);
+            // Alle Voucher in EINEM UniFi-API-Call erstellen ('n'-Parameter)
+            // statt pro Voucher Login + Voucherliste abzurufen.
+            $fullName   = date('Y-m-d') . '_' . $voucherName;
+            $controller = new UniFiController(
+                $site['unifi_controller_url'],
+                $site['unifi_username'],
+                Crypto::decrypt($site['unifi_password']),
+                $site['site_id'],
+                $site['ssl_verify'] ?? 0
+            );
+            $created  = $controller->createVouchers($fullName, $maxUses, $expireMinutes, $bulkCount, $qos);
+            $expiryTs = time() + ($expireMinutes * 60);
+
+            foreach ($created as $i => $voucher) {
+                $db->execute(
+                    "INSERT INTO vouchers (site_id, user_id, voucher_code, voucher_name, max_uses, expire_minutes, unifi_voucher_id)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    [$site['id'], $userId, $voucher['code'], $fullName . '_' . ($i + 1), $maxUses, $expireMinutes, $voucher['unifi_id'] ?? null]
+                );
+                $bulkVouchers[] = [
+                    'code'        => $voucher['formatted_code'],
+                    'site_name'   => $site['name'],
+                    'max_uses'    => $maxUses,
+                    'expire_min'  => $expireMinutes,
+                    'expiry_date' => date('d.m.Y', $expiryTs),
+                    'expiry_time' => date('H:i', $expiryTs),
+                ];
             }
 
-            Notifier::voucherCreated($bulkCount, $site['name'], $_SESSION['user_name'] ?? null);
-            $bulkCreated = true;
-            $success = str_replace('{count}', $bulkCount, __('bulk_success'));
+            Notifier::voucherCreated(count($created), $site['name'], $_SESSION['user_name'] ?? null);
+            $auth->writeAuditLog($userId, 'voucher_bulk', 'voucher', null,
+                count($created) . " Vouchers '{$voucherName}' für {$site['name']}");
+
+            $success = str_replace('{count}', count($created), __('bulk_success'));
+
+            // PRG-Pattern: Reload darf die Bulk-Erstellung nicht wiederholen.
+            $_SESSION['voucher_flash'] = ['type' => 'bulk', 'data' => $bulkVouchers, 'success' => $success];
+            header('Location: index.php?created=1');
+            exit;
         } catch (Exception $e) {
             $error = 'Fehler: ' . $e->getMessage();
         }
     }
 }
 
+// PRG: Ergebnis nach Redirect aus dem Session-Flash wiederherstellen.
+// Der Flash bleibt fuer Reloads der Ergebnisseite erhalten und wird beim
+// Zurueckkehren zum Formular (GET ohne ?created) verworfen.
+if (isset($_GET['created']) && !empty($_SESSION['voucher_flash'])) {
+    $flash = $_SESSION['voucher_flash'];
+    if (($flash['type'] ?? '') === 'bulk') {
+        $bulkVouchers = $flash['data'];
+        $bulkCreated  = true;
+    } else {
+        $voucherData    = $flash['data'];
+        $voucherCode    = $voucherData['code'];
+        $voucherCreated = true;
+    }
+    $success = $flash['success'] ?? '';
+} elseif ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    unset($_SESSION['voucher_flash']);
+}
+
 $currentUser = $auth->isLoggedIn() ? $auth->getCurrentUser() : null;
+
+// Bei Validierungsfehlern: eingegebene Werte und aktiven Tab erhalten
+$activeMode      = ($error && isset($_POST['create_bulk'])) ? 'bulk' : 'single';
+$stickyName      = $error ? trim((string)($_POST['voucher_name'] ?? '')) : '';
+$stickyMaxUses   = $error ? (int)($_POST['max_uses'] ?? $defaultMaxUses) : $defaultMaxUses;
+$stickyBulkCount = $error ? max(1, min(20, (int)($_POST['bulk_count'] ?? 5))) : 5;
+$stickySiteId    = $error ? (int)($_POST['site_id'] ?? 0) : 0;
+if ($stickyMaxUses < 1 || $stickyMaxUses > $maxUsesLimit) $stickyMaxUses = $defaultMaxUses;
+// Anonyme Gaeste wissen oft nicht, was sie als Namen eintragen sollen -> Default
+if ($stickyName === '' && !$auth->isLoggedIn()) $stickyName = __('voucher_name_default');
 
 // Captcha nur für anonyme öffentliche Erstellung
 $captchaMode     = !$auth->isLoggedIn() ? Captcha::mode($db) : 'off';
@@ -284,6 +395,9 @@ function buildPrintCard($template, $data, $instructionHeader, $instructionText, 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= htmlspecialchars($appTitle) ?></title>
+    <?php if ($faviconUrl): ?>
+    <link rel="icon" href="<?= htmlspecialchars($faviconUrl) ?>">
+    <?php endif; ?>
     <link rel="stylesheet" href="assets/global.css">
     <?php if ($captchaMode === 'hcaptcha' && $hcaptchaSiteKey !== ''): ?>
     <script src="https://js.hcaptcha.com/1/api.js" async defer></script>
@@ -303,9 +417,6 @@ function buildPrintCard($template, $data, $instructionHeader, $instructionText, 
         .container { max-width: 600px; margin: 0 auto; background: var(--bg-card); border-radius: 20px; box-shadow: 0 20px 60px var(--shadow-lg); padding: 40px; }
         h1 { text-align: center; color: var(--text-primary); margin-bottom: 30px; font-size: 28px; }
         .logo { max-width: 250px; display: block; margin: 0 auto 30px; }
-        .alert { padding: 14px; border-radius: 10px; margin-bottom: 25px; font-size: 14px; }
-        .alert-error   { background: #fee; border: 1px solid #fcc; color: #c33; }
-        .alert-success { background: #efe; border: 1px solid #cfc; color: #3c3; }
         .form-group { margin-bottom: 20px; }
         label { display: block; margin-bottom: 8px; color: var(--text-secondary); font-weight: 500; font-size: 14px; }
         input[type="text"], input[type="number"], input[type="email"], select { width: 100%; padding: 14px; border: 2px solid var(--border-color); border-radius: 10px; font-size: 15px; transition: all 0.2s; background: var(--bg-input); color: var(--text-primary); }
@@ -411,11 +522,11 @@ function buildPrintCard($template, $data, $instructionHeader, $instructionText, 
 
         <div class="voucher-result no-print">
             <div style="font-size:18px;margin-bottom:10px;"><?= __('voucher_success_title') ?></div>
-            <div class="voucher-code" id="voucherCode" onclick="copyCode()" title="Klicken zum Kopieren">
+            <div class="voucher-code" id="voucherCode" onclick="copyCode()" title="<?= __('click_to_copy') ?>">
                 <?= htmlspecialchars($voucherCode) ?>
             </div>
             <div class="voucher-info">
-                <?= str_replace('{minutes}', $voucherData['expire_min'], __('voucher_validity')) ?>
+                <?= str_replace('{duration}', formatDuration($voucherData['expire_min']), __('voucher_validity')) ?>
             </div>
             <div class="qr-wrapper no-print">
                 <div id="qrcode"></div>
@@ -463,8 +574,8 @@ function buildPrintCard($template, $data, $instructionHeader, $instructionText, 
                     <tr>
                         <td><?= $i + 1 ?></td>
                         <td>
-                            <code onclick="copyToClipboard('<?= addslashes($bv['code']) ?>', 'Kopiert!')"
-                                  title="Klicken zum Kopieren"><?= htmlspecialchars($bv['code']) ?></code>
+                            <code onclick="copyToClipboard('<?= addslashes($bv['code']) ?>', '<?= addslashes(__('toast_copied')) ?>')"
+                                  title="<?= __('click_to_copy') ?>"><?= htmlspecialchars($bv['code']) ?></code>
                         </td>
                         <td><?= htmlspecialchars($bv['site_name']) ?></td>
                         <td><?= $bv['expiry_date'] ?> <?= $bv['expiry_time'] ?></td>
@@ -472,7 +583,7 @@ function buildPrintCard($template, $data, $instructionHeader, $instructionText, 
                     <?php endforeach; ?>
                 </tbody>
             </table>
-            <p class="copy-hint" style="margin-top:8px;">Code anklicken zum Kopieren</p>
+            <p class="copy-hint" style="margin-top:8px;"><?= __('copy_hint') ?></p>
         </div>
 
         <div class="no-print" style="display:flex;gap:10px;margin-top:20px;">
@@ -542,13 +653,14 @@ function buildPrintCard($template, $data, $instructionHeader, $instructionText, 
                 <div class="form-group">
                     <label for="voucher_name"><?= __('voucher_name_label') ?></label>
                     <input type="text" id="voucher_name" name="voucher_name"
+                           value="<?= htmlspecialchars($stickyName) ?>"
                            placeholder="<?= __('voucher_name_hint') ?>" required>
                 </div>
 
                 <div class="form-group">
                     <label for="max_uses"><?= __('voucher_devices_label') ?></label>
                     <input type="number" id="max_uses" name="max_uses"
-                           min="1" max="<?= $maxUsesLimit ?>" value="<?= $defaultMaxUses ?>" required>
+                           min="1" max="<?= $maxUsesLimit ?>" value="<?= $stickyMaxUses ?>" required>
                 </div>
 
                 <div class="form-group">
@@ -558,7 +670,7 @@ function buildPrintCard($template, $data, $instructionHeader, $instructionText, 
                             <option value=""><?= __('voucher_site_select') ?></option>
                         <?php endif; ?>
                         <?php foreach ($sites as $site): ?>
-                            <option value="<?= (int)$site['id'] ?>" <?= ($autoSelectSite == $site['id']) ? 'selected' : '' ?>>
+                            <option value="<?= (int)$site['id'] ?>" <?= (($stickySiteId ?: $autoSelectSite) == $site['id']) ? 'selected' : '' ?>>
                                 <?= htmlspecialchars($site['name']) ?>
                             </option>
                         <?php endforeach; ?>
@@ -602,7 +714,8 @@ function buildPrintCard($template, $data, $instructionHeader, $instructionText, 
             </form>
         </div>
 
-        <!-- Bulk creation form -->
+        <!-- Bulk creation form (nur fuer eingeloggte Nutzer, serverseitig erzwungen) -->
+        <?php if ($auth->isLoggedIn()): ?>
         <div id="mode-bulk" style="display:none;">
             <form method="post" id="bulkForm">
                 <input type="hidden" name="create_bulk" value="1">
@@ -616,20 +729,21 @@ function buildPrintCard($template, $data, $instructionHeader, $instructionText, 
                 <div class="form-group">
                     <label for="bulk_count"><?= __('bulk_quantity') ?></label>
                     <input type="number" id="bulk_count" name="bulk_count"
-                           min="1" max="20" value="5" required>
+                           min="1" max="20" value="<?= $stickyBulkCount ?>" required>
                     <p style="font-size:12px;color:var(--text-muted);margin-top:5px;"><?= __('bulk_quantity_hint') ?></p>
                 </div>
 
                 <div class="form-group">
                     <label for="bulk_voucher_name"><?= __('bulk_name_prefix') ?></label>
                     <input type="text" id="bulk_voucher_name" name="voucher_name"
+                           value="<?= $activeMode === 'bulk' ? htmlspecialchars($stickyName) : '' ?>"
                            placeholder="<?= __('voucher_name_hint') ?>" required>
                 </div>
 
                 <div class="form-group">
                     <label for="bulk_max_uses"><?= __('voucher_devices_label') ?></label>
                     <input type="number" id="bulk_max_uses" name="max_uses"
-                           min="1" max="<?= $maxUsesLimit ?>" value="<?= $defaultMaxUses ?>" required>
+                           min="1" max="<?= $maxUsesLimit ?>" value="<?= $stickyMaxUses ?>" required>
                 </div>
 
                 <div class="form-group">
@@ -639,7 +753,7 @@ function buildPrintCard($template, $data, $instructionHeader, $instructionText, 
                             <option value=""><?= __('voucher_site_select') ?></option>
                         <?php endif; ?>
                         <?php foreach ($sites as $site): ?>
-                            <option value="<?= (int)$site['id'] ?>" <?= ($autoSelectSite == $site['id']) ? 'selected' : '' ?>>
+                            <option value="<?= (int)$site['id'] ?>" <?= (($stickySiteId ?: $autoSelectSite) == $site['id']) ? 'selected' : '' ?>>
                                 <?= htmlspecialchars($site['name']) ?>
                             </option>
                         <?php endforeach; ?>
@@ -647,10 +761,11 @@ function buildPrintCard($template, $data, $instructionHeader, $instructionText, 
                 </div>
 
                 <button type="submit" class="btn" id="bulkSubmitBtn">
-                    <?= str_replace('{count}', '<span id="bulkCountLabel">5</span>', __('bulk_create_btn')) ?>
+                    <?= str_replace('{count}', '<span id="bulkCountLabel">' . $stickyBulkCount . '</span>', __('bulk_create_btn')) ?>
                 </button>
             </form>
         </div>
+        <?php endif; ?>
 
         <?php if ($instructionHeader || $instructionText): ?>
         <div class="instruction-box" style="margin-top:25px;">
@@ -667,16 +782,18 @@ function buildPrintCard($template, $data, $instructionHeader, $instructionText, 
 <script>
     <?php if ($voucherCreated): ?>
     document.addEventListener('DOMContentLoaded', function() {
+        // Dunkle Module auf weissem Grund: invertierte QR-Codes (hell auf
+        // dunkel) werden von vielen Kamera-Apps nicht erkannt.
         new QRCode(document.getElementById('qrcode'), {
             text: '<?= addslashes($voucherCode) ?>',
             width: 160, height: 160,
-            colorDark: '#ffffff', colorLight: 'transparent',
+            colorDark: '#000000', colorLight: '#ffffff',
             correctLevel: QRCode.CorrectLevel.M
         });
     });
 
     function copyCode() {
-        copyToClipboard('<?= addslashes($voucherCode) ?>', 'Code kopiert!');
+        copyToClipboard('<?= addslashes($voucherCode) ?>', '<?= addslashes(__('toast_copied')) ?>');
     }
     <?php endif; ?>
 
@@ -699,8 +816,11 @@ function buildPrintCard($template, $data, $instructionHeader, $instructionText, 
     }
 
     function switchMode(mode) {
-        document.getElementById('mode-single').style.display = mode === 'single' ? '' : 'none';
-        document.getElementById('mode-bulk').style.display   = mode === 'bulk' ? '' : 'none';
+        const single = document.getElementById('mode-single');
+        const bulk   = document.getElementById('mode-bulk');
+        if (!single || !bulk) return; // Bulk existiert nur fuer eingeloggte Nutzer
+        single.style.display = mode === 'single' ? '' : 'none';
+        bulk.style.display   = mode === 'bulk' ? '' : 'none';
         document.getElementById('tab-single').classList.toggle('active', mode === 'single');
         document.getElementById('tab-bulk').classList.toggle('active', mode === 'bulk');
     }
@@ -710,8 +830,10 @@ function buildPrintCard($template, $data, $instructionHeader, $instructionText, 
         const expire = opt.value ? parseInt(opt.dataset.expire) : <?= $defaultExpire ?>;
         const maxUses = opt.value ? parseInt(opt.dataset.maxUses) : <?= $defaultMaxUses ?>;
 
-        document.getElementById('expire_minutes').value = expire;
-        document.getElementById('bulk_expire_minutes').value = expire;
+        const expEl = document.getElementById('expire_minutes');
+        if (expEl) expEl.value = expire;
+        const bexpEl = document.getElementById('bulk_expire_minutes');
+        if (bexpEl) bexpEl.value = expire;
         const muEl = document.getElementById('max_uses');
         if (muEl) muEl.value = maxUses;
         const bmuEl = document.getElementById('bulk_max_uses');
@@ -755,6 +877,9 @@ function buildPrintCard($template, $data, $instructionHeader, $instructionText, 
 
     document.addEventListener('DOMContentLoaded', function() {
         toggleEmailField?.();
+        <?php if ($activeMode === 'bulk'): ?>
+        switchMode('bulk'); // Nach Fehler im Bulk-Formular im Bulk-Tab bleiben
+        <?php endif; ?>
     });
 </script>
 </body>

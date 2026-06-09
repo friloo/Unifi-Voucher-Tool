@@ -99,12 +99,12 @@ return [
     'voucher_create_btn'    => 'Voucher erstellen',
     'voucher_creating'      => 'Erstelle Voucher...',
     'voucher_success_title' => '✓ Ihr Zugangs-Code',
-    'voucher_validity'      => 'Gültig für {minutes} Minuten ab Erstellung',
+    'voucher_validity'      => 'Gültig für {duration} ab Erstellung',
     'voucher_qr_label'      => 'QR-Code scannen zum Verbinden',
     'voucher_print_btn'     => 'Code ausdrucken',
     'voucher_no_sites'      => 'Keine verfügbaren Sites gefunden.',
     'voucher_no_sites_admin'=> 'Klicken Sie hier, um Sites anzulegen',
-    'voucher_no_sites_user' => 'Bitte kontaktieren Sie Ihren Administrator.',
+    'voucher_no_sites_user' => 'Ihr Konto hat noch keinen Site-Zugriff. Bitte kontaktieren Sie Ihren Administrator, um Berechtigungen zu erhalten.',
     'voucher_template_select'=> '-- Kein Profil (manuell) --',
     'voucher_template_label'=> 'Schnellprofil (optional)',
 
@@ -292,4 +292,64 @@ return [
     'never'             => 'Noch nie',
     'unknown'           => 'Unbekannt',
     'or'                => 'oder',
+
+    // Durations (human readable)
+    'dur_minutes'       => '{n} Minuten',
+    'dur_hour_one'      => '1 Stunde',
+    'dur_hours'         => '{n} Stunden',
+    'dur_day_one'       => '1 Tag',
+    'dur_days'          => '{n} Tage',
+
+    // Voucher creation (messages)
+    'voucher_created_ok'   => 'Voucher erfolgreich erstellt!',
+    'voucher_created_mail' => 'Voucher erstellt. E-Mail versendet.',
+    'voucher_name_default' => 'Gast',
+    'voucher_deleted'      => 'Voucher erfolgreich gelöscht!',
+    'voucher_delete_failed'=> 'Voucher konnte nicht gelöscht werden',
+    'error_rate_limited'   => 'Zu viele Anfragen. Bitte warten Sie einen Moment.',
+
+    // Clipboard / UI
+    'toast_copied'      => 'Kopiert!',
+    'click_to_copy'     => 'Klicken zum Kopieren',
+    'copy_hint'         => 'Code anklicken zum Kopieren',
+    'loading'           => 'Lade…',
+    'syncing'           => 'Synchronisiere…',
+    'vouchers_loaded'   => '{count} Vouchers geladen',
+
+    // Confirm dialogs
+    'confirm_delete_user'     => 'Benutzer wirklich löschen?',
+    'confirm_delete_site'     => 'Möchten Sie diese Site wirklich löschen?',
+    'confirm_delete_template' => 'Profil wirklich löschen?',
+    'confirm_delete_voucher'  => 'Voucher wirklich löschen?',
+    'confirm_send_reset'      => 'Passwort-Reset-Link senden an {email}?',
+    'confirm_delete_token'    => 'Token wirklich löschen?',
+
+    // Admin messages
+    'users_status_updated'  => 'Benutzer-Status aktualisiert!',
+    'sites_status_updated'  => 'Site-Status aktualisiert!',
+    'error_self_delete'     => 'Sie können sich nicht selbst löschen',
+    'error_self_deactivate' => 'Sie können sich nicht selbst deaktivieren',
+    'error_self_demote'     => 'Sie können sich nicht selbst die Administrator-Rechte entziehen',
+    'error_pw_mismatch'     => 'Passwörter stimmen nicht überein',
+    'error_pw_current'      => 'Aktuelles Passwort ist falsch',
+    'error_email_exists'    => 'E-Mail bereits vorhanden',
+    'error_user_create'     => 'Benutzer konnte nicht erstellt werden',
+    'reset_link_sent'       => 'Passwort-Reset-Link wurde an {email} gesendet.',
+    'reset_link_failed'     => 'Benutzer nicht gefunden oder kein lokales Passwort.',
+    'cron_token_generated'  => 'Neuer Cron-Token wurde generiert!',
+    'cron_token_deleted'    => 'Cron-Token wurde gelöscht!',
+    'm365_secret_hint'      => 'Leer lassen = nicht ändern. Zum Deaktivieren des M365-Logins die Client ID leeren.',
+
+    // SSL-Verifizierung
+    'sites_ssl_verify'      => 'SSL-Zertifikat des Controllers prüfen',
+    'sites_ssl_verify_hint' => 'Nur aktivieren, wenn der Controller ein gültiges Zertifikat besitzt (UniFi nutzt standardmäßig self-signed).',
+    'smtp_verify_ssl'       => 'SSL-Zertifikat des SMTP-Servers prüfen',
+
+    // Site connection test
+    'site_test_btn'   => 'Verbindung testen',
+    'site_test_ok'    => 'Verbindung erfolgreich',
+    'site_test_fail'  => 'Verbindung fehlgeschlagen',
+
+    // System warnings
+    'crypto_warning'  => 'Verschlüsselung inaktiv: In der config.php ist kein gültiger APP_KEY gesetzt. UniFi-Passwörter werden im Klartext gespeichert. Bei einem Serverumzug mit verändertem APP_KEY schlagen Controller-Logins still fehl.',
 ];

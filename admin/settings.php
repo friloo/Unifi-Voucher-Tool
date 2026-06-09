@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/Database.php';
 require_once __DIR__ . '/../includes/Auth.php';
 require_once __DIR__ . '/../includes/Mailer.php';
 require_once __DIR__ . '/../includes/I18n.php';
+require_once __DIR__ . '/../includes/Helpers.php';
 
 $auth = new Auth();
 $auth->requireAdmin();
@@ -72,7 +73,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_settings'])) {
 
             if ($formType === 'm365') {
                 $settings['m365_client_id'] = trim($_POST['m365_client_id'] ?? '');
-                $settings['m365_client_secret'] = trim($_POST['m365_client_secret'] ?? '');
+                // Secret nur aktualisieren, wenn eines eingegeben wurde – es wird
+                // (wie das SMTP-Passwort) nicht mehr ins Formular zurueckgegeben.
+                if (!empty($_POST['m365_client_secret'])) {
+                    $settings['m365_client_secret'] = trim($_POST['m365_client_secret']);
+                }
                 $settings['m365_tenant_id'] = trim($_POST['m365_tenant_id'] ?? '');
             }
 
@@ -85,6 +90,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_settings'])) {
                     $settings['smtp_password'] = trim($_POST['smtp_password']);
                 }
                 $settings['smtp_encryption'] = trim($_POST['smtp_encryption'] ?? 'tls');
+                $settings['smtp_verify_ssl'] = isset($_POST['smtp_verify_ssl']) ? '1' : '0';
                 $settings['smtp_from_email'] = trim($_POST['smtp_from_email'] ?? '');
                 $settings['smtp_from_name'] = trim($_POST['smtp_from_name'] ?? '');
             }
@@ -106,7 +112,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_settings'])) {
                 $db->setSetting($key, $value);
             }
 
-            $success = __('settings_saved');
+            // PRG + Tab-Anker: F5 speichert nicht erneut, und der Nutzer landet
+            // wieder auf dem Tab, in dem er gespeichert hat.
+            $tabAnchors = [
+                'general' => 'general', 'defaults' => 'defaults', 'm365' => 'm365',
+                'smtp' => 'smtp', 'templates' => 'templates_email', 'system' => 'system',
+            ];
+            flashSet(__('settings_saved'));
+            header('Location: settings.php#' . ($tabAnchors[$formType] ?? 'general'));
+            exit;
         } catch (Exception $e) {
             $error = 'Fehler: ' . $e->getMessage();
         }
@@ -119,7 +133,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['generate_cron_token']
         $error = __('error_csrf');
     } else {
         $db->setSetting('cron_token', bin2hex(random_bytes(32)));
-        $success = 'Neuer Cron-Token wurde generiert!';
+        flashSet(__('cron_token_generated'));
+        header('Location: settings.php#cron');
+        exit;
     }
 }
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_cron_token'])) {
@@ -127,7 +143,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_cron_token']))
         $error = __('error_csrf');
     } else {
         $db->setSetting('cron_token', '');
-        $success = 'Cron-Token wurde gelöscht!';
+        flashSet(__('cron_token_deleted'));
+        header('Location: settings.php#cron');
+        exit;
     }
 }
 
@@ -139,21 +157,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_password'])) {
         try {
             $user = $auth->getCurrentUser();
             if (!password_verify($_POST['current_password'], $user['password_hash'])) {
-                throw new Exception('Aktuelles Passwort ist falsch');
+                throw new Exception(__('error_pw_current'));
             }
             if (strlen($_POST['new_password']) < 8) {
                 throw new Exception(__('settings_pw_minlength'));
             }
             if ($_POST['new_password'] !== $_POST['confirm_password']) {
-                throw new Exception('Passwörter stimmen nicht überein');
+                throw new Exception(__('error_pw_mismatch'));
             }
             $db->query("UPDATE users SET password_hash = ? WHERE id = ?",
                 [password_hash($_POST['new_password'], PASSWORD_DEFAULT), $user['id']]);
-            $success = __('settings_pw_changed');
+            flashSet(__('settings_pw_changed'));
+            header('Location: settings.php#password');
+            exit;
         } catch (Exception $e) {
             $error = $e->getMessage();
         }
     }
+}
+
+if (empty($success) && empty($error) && ($flash = flashGet())) {
+    $success = $flash['message'];
 }
 
 $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
@@ -181,6 +205,7 @@ $cs = [
     'smtp_username'                => $db->getSetting('smtp_username', ''),
     'smtp_password'                => $db->getSetting('smtp_password', ''),
     'smtp_encryption'              => $db->getSetting('smtp_encryption', 'tls'),
+    'smtp_verify_ssl'              => $db->getSetting('smtp_verify_ssl', '0'),
     'smtp_from_email'              => $db->getSetting('smtp_from_email', ''),
     'smtp_from_name'               => $db->getSetting('smtp_from_name', ''),
     'system_url'                   => $db->getSetting('system_url', $autoDetectedUrl),
@@ -215,9 +240,6 @@ $adminBase = '';
     <style>
         .page-header { margin-bottom: 30px; }
         .page-title  { font-size: 28px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
-        .alert { padding: 14px 20px; border-radius: 10px; margin-bottom: 25px; font-size: 14px; display: flex; align-items: center; gap: 10px; }
-        .alert-error   { background: #fee; border: 1px solid #fcc; color: #c33; }
-        .alert-success { background: #efe; border: 1px solid #cfc; color: #3c3; }
         .tab-container { background: var(--bg-card); border-radius: 15px; box-shadow: 0 2px 10px var(--shadow); border: 1px solid var(--border-color); overflow: hidden; }
         .tab-navigation { display: flex; background: var(--bg-table-head); border-bottom: 2px solid var(--border-color); overflow-x: auto; position: sticky; top: 70px; z-index: 50; }
         .tab-button { padding: 15px 20px; background: transparent; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--text-secondary); transition: all 0.3s; white-space: nowrap; display: flex; align-items: center; gap: 7px; }
@@ -350,7 +372,7 @@ $adminBase = '';
                 <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px;">
                     <button onclick="copyToClipboard('<?= htmlspecialchars($cs['cron_token']) ?>')" class="btn btn-secondary"><i class="fas fa-copy"></i> Kopieren</button>
                     <form method="post" style="display:inline;"><input type="hidden" name="csrf_token" value="<?= $auth->getCsrfToken() ?>"><button type="submit" name="generate_cron_token" class="btn btn-secondary"><i class="fas fa-sync"></i> Neu generieren</button></form>
-                    <form method="post" style="display:inline;" onsubmit="return confirm('Token wirklich löschen?');"><input type="hidden" name="csrf_token" value="<?= $auth->getCsrfToken() ?>"><button type="submit" name="delete_cron_token" class="btn btn-secondary" style="color: var(--danger);"><i class="fas fa-trash"></i> Löschen</button></form>
+                    <form method="post" style="display:inline;" onsubmit="return confirm('<?= addslashes(__('confirm_delete_token')) ?>');"><input type="hidden" name="csrf_token" value="<?= $auth->getCsrfToken() ?>"><button type="submit" name="delete_cron_token" class="btn btn-secondary" style="color: var(--danger);"><i class="fas fa-trash"></i> Löschen</button></form>
                 </div>
             <?php endif; ?>
             <?php
@@ -389,7 +411,7 @@ $adminBase = '';
                 <input type="hidden" name="csrf_token" value="<?= $auth->getCsrfToken() ?>">
                 <input type="hidden" name="form_type" value="m365">
                 <div class="form-group"><label>Client ID</label><input type="text" name="m365_client_id" value="<?= htmlspecialchars($cs['m365_client_id']) ?>"></div>
-                <div class="form-group"><label>Client Secret</label><input type="password" name="m365_client_secret" value="<?= htmlspecialchars($cs['m365_client_secret']) ?>"></div>
+                <div class="form-group"><label>Client Secret</label><input type="password" name="m365_client_secret" placeholder="<?= $cs['m365_client_secret'] !== '' ? '••••••••' : '' ?>"><div class="help-text"><?= __('m365_secret_hint') ?></div></div>
                 <div class="form-group"><label>Tenant ID</label><input type="text" name="m365_tenant_id" value="<?= htmlspecialchars($cs['m365_tenant_id']) ?>"></div>
                 <button type="submit" name="save_settings" class="btn btn-primary"><i class="fas fa-save"></i> <?= __('btn_save') ?></button>
             </form>
@@ -407,6 +429,7 @@ $adminBase = '';
                     <div class="form-group"><label>Port</label><input type="number" name="smtp_port" value="<?= htmlspecialchars($cs['smtp_port']) ?>"></div>
                 </div>
                 <div class="form-group"><label>Verschlüsselung</label><select name="smtp_encryption"><option value="tls" <?= $cs['smtp_encryption']==='tls'?'selected':'' ?>>TLS</option><option value="ssl" <?= $cs['smtp_encryption']==='ssl'?'selected':'' ?>>SSL</option><option value="none" <?= $cs['smtp_encryption']==='none'?'selected':'' ?>>Keine</option></select></div>
+                <div class="checkbox-group" style="margin-bottom: 20px;"><input type="checkbox" name="smtp_verify_ssl" id="smtp_verify_ssl" <?= $cs['smtp_verify_ssl'] == '1' ? 'checked' : '' ?>><label for="smtp_verify_ssl" style="margin:0;"><?= __('smtp_verify_ssl') ?></label></div>
                 <div class="form-grid">
                     <div class="form-group"><label>Benutzername</label><input type="text" name="smtp_username" value="<?= htmlspecialchars($cs['smtp_username']) ?>"></div>
                     <div class="form-group"><label>Passwort</label><input type="password" name="smtp_password" placeholder="Leer = nicht ändern"></div>

@@ -45,22 +45,23 @@ $users = $db->fetchAll("SELECT id, name FROM users WHERE is_active = 1 ORDER BY 
 $currentPage = 'audit_log';
 $adminBase   = '';
 
+// WICHTIG: Die Keys muessen den tatsaechlich via writeAuditLog() geschriebenen
+// Action-Namen entsprechen (user_create, site_edit, ...), sonst erscheinen
+// die Eintraege als rohe Keys.
 $actionLabels = [
-    'voucher_created'  => '🎫 Voucher erstellt',
+    'voucher_create'   => '🎫 Voucher erstellt',
     'voucher_bulk'     => '🎫 Bulk Voucher',
     'user_login'       => '🔐 Login',
-    'user_logout'      => '🚪 Logout',
-    'user_created'     => '👤 Benutzer erstellt',
-    'user_updated'     => '👤 Benutzer geändert',
-    'user_deleted'     => '👤 Benutzer gelöscht',
-    'site_added'       => '🌐 Site hinzugefügt',
-    'site_updated'     => '🌐 Site geändert',
-    'site_deleted'     => '🌐 Site gelöscht',
-    'settings_saved'   => '⚙️ Einstellungen gespeichert',
+    'user_create'      => '👤 Benutzer erstellt',
+    'user_edit'        => '👤 Benutzer geändert',
+    'user_delete'      => '👤 Benutzer gelöscht',
+    'site_create'      => '🌐 Site hinzugefügt',
+    'site_edit'        => '🌐 Site geändert',
+    'site_delete'      => '🌐 Site gelöscht',
     'password_reset'   => '🔑 Passwort-Reset',
-    'template_created' => '📋 Profil erstellt',
-    'template_updated' => '📋 Profil geändert',
-    'template_deleted' => '📋 Profil gelöscht',
+    'update_installed' => '🔄 Update installiert',
+    'update_failed'    => '🔄 Update fehlgeschlagen',
+    'migrations_run'   => '🗄️ Migrationen ausgeführt',
 ];
 ?>
 <!DOCTYPE html>
@@ -81,7 +82,6 @@ $actionLabels = [
         .table td { padding: 12px 15px; border-bottom: 1px solid var(--border-color); font-size: 13px; color: var(--text-primary); }
         .table tr:last-child td { border-bottom: none; }
         .table tr:hover td { background: var(--bg-hover); }
-        .badge { display: inline-block; padding: 3px 9px; border-radius: 5px; font-size: 11px; font-weight: 500; }
         .filter-bar { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
         .filter-bar select { padding: 9px 12px; border: 2px solid var(--border-color); border-radius: 8px; font-size: 13px; background: var(--bg-input); color: var(--text-primary); }
         .filter-bar select:focus { outline: none; border-color: var(--accent); }

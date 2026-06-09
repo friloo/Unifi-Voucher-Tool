@@ -7,6 +7,7 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../includes/Database.php';
 require_once __DIR__ . '/../includes/Auth.php';
 require_once __DIR__ . '/../includes/I18n.php';
+require_once __DIR__ . '/../includes/Helpers.php';
 
 $auth = new Auth();
 $auth->requireAdmin();
@@ -41,7 +42,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_template'])) {
                 "INSERT INTO voucher_templates (name, max_uses, expire_minutes, description, qos_rate_max_down, qos_rate_max_up, qos_usage_quota, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 [$name, $maxUses, $expireMin, $description, $qosDown, $qosUp, $qosQuota, $_SESSION['user_id']]
             );
-            $success = __('templates_added');
+            flashSet(__('templates_added'));
+            header('Location: templates.php');
+            exit;
         } catch (Exception $e) {
             $error = $e->getMessage();
         }
@@ -71,21 +74,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_template'])) {
                 "UPDATE voucher_templates SET name=?, max_uses=?, expire_minutes=?, description=?, qos_rate_max_down=?, qos_rate_max_up=?, qos_usage_quota=?, is_active=? WHERE id=?",
                 [$name, $maxUses, $expireMin, $description, $qosDown, $qosUp, $qosQuota, $isActive, $id]
             );
-            $success = __('templates_updated');
+            flashSet(__('templates_updated'));
+            header('Location: templates.php');
+            exit;
         } catch (Exception $e) {
             $error = $e->getMessage();
         }
     }
 }
 
-// Profil löschen
-if (isset($_GET['delete']) && isset($_GET['token'])) {
-    if ($auth->validateCsrfToken($_GET['token'])) {
-        $db->execute("DELETE FROM voucher_templates WHERE id = ?", [(int)$_GET['delete']]);
-        $success = __('templates_deleted');
+// Profil löschen (POST + PRG)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_template'])) {
+    if ($auth->validateCsrfToken($_POST['csrf_token'] ?? '')) {
+        $db->execute("DELETE FROM voucher_templates WHERE id = ?", [(int)$_POST['delete_template']]);
+        flashSet(__('templates_deleted'));
+        header('Location: templates.php');
+        exit;
     } else {
         $error = __('error_csrf');
     }
+}
+
+if (empty($success) && empty($error) && ($flash = flashGet())) {
+    $success = $flash['message'];
 }
 
 $templates = $db->fetchAll("SELECT t.*, u.name as creator FROM voucher_templates t LEFT JOIN users u ON t.created_by = u.id ORDER BY t.is_active DESC, t.name");
@@ -103,9 +114,6 @@ $adminBase   = '';
     <style>
         .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; flex-wrap: wrap; gap: 15px; }
         .page-title  { font-size: 28px; font-weight: 600; color: var(--text-primary); }
-        .alert { padding: 14px 20px; border-radius: 10px; margin-bottom: 25px; font-size: 14px; }
-        .alert-error   { background: #fee; border: 1px solid #fcc; color: #c33; }
-        .alert-success { background: #efe; border: 1px solid #cfc; color: #3c3; }
         .card { background: var(--bg-card); border-radius: 15px; box-shadow: 0 2px 10px var(--shadow); border: 1px solid var(--border-color); overflow: hidden; margin-bottom: 25px; }
         .card-header { padding: 20px 25px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
         .card-title  { font-size: 18px; font-weight: 600; color: var(--text-primary); }
@@ -114,9 +122,6 @@ $adminBase   = '';
         .table td { padding: 14px 15px; border-bottom: 1px solid var(--border-color); color: var(--text-primary); font-size: 14px; }
         .table tr:last-child td { border-bottom: none; }
         .table tr:hover td { background: var(--bg-hover); }
-        .badge { display: inline-block; padding: 3px 10px; border-radius: 6px; font-size: 11px; font-weight: 500; }
-        .badge-success { background: #d4edda; color: #155724; }
-        .badge-secondary { background: var(--bg-hover); color: var(--text-muted); }
         .btn-primary  { background: var(--accent); color: white; }
         .btn-primary:hover { background: var(--accent-hover); }
         .btn-danger   { background: var(--danger); color: white; }
@@ -214,9 +219,15 @@ $adminBase   = '';
                             <td>
                                 <button onclick="openEditModal(<?= $t['id'] ?>, '<?= htmlspecialchars($t['name'], ENT_QUOTES) ?>', <?= (int)$t['max_uses'] ?>, <?= (int)$t['expire_minutes'] ?>, '<?= htmlspecialchars($t['description'] ?? '', ENT_QUOTES) ?>', <?= (int)$t['is_active'] ?>, <?= (int)($t['qos_rate_max_down'] ?? 0) ?>, <?= (int)($t['qos_rate_max_up'] ?? 0) ?>, <?= (int)($t['qos_usage_quota'] ?? 0) ?>)"
                                         class="btn btn-secondary btn-small"><i class="fas fa-edit"></i></button>
-                                <a href="?delete=<?= $t['id'] ?>&token=<?= $auth->getCsrfToken() ?>"
-                                   onclick="return confirm('Profil wirklich löschen?')"
-                                   class="btn btn-danger btn-small"><i class="fas fa-trash"></i></a>
+                                <form method="post" style="display:inline;"
+                                      onsubmit="return confirm('<?= addslashes(__('confirm_delete_template')) ?>')">
+                                    <input type="hidden" name="csrf_token" value="<?= $auth->getCsrfToken() ?>">
+                                    <input type="hidden" name="delete_template" value="<?= $t['id'] ?>">
+                                    <button type="submit" class="btn btn-danger btn-small"
+                                            title="<?= __('btn_delete') ?>" aria-label="<?= __('btn_delete') ?>">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </form>
                             </td>
                         </tr>
                         <?php endforeach; ?>

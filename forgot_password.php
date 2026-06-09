@@ -8,6 +8,7 @@ require_once __DIR__ . '/includes/Database.php';
 require_once __DIR__ . '/includes/Auth.php';
 require_once __DIR__ . '/includes/Mailer.php';
 require_once __DIR__ . '/includes/I18n.php';
+require_once __DIR__ . '/includes/Helpers.php';
 
 $auth = new Auth();
 if ($auth->isLoggedIn()) { header('Location: index.php'); exit; }
@@ -16,7 +17,17 @@ I18n::init();
 $db       = Database::getInstance();
 $appTitle = $db->getSetting('app_title', 'UniFi Voucher System');
 $logoUrl  = $db->getSetting('logo_url', '');
+$faviconUrl = $db->getSetting('favicon_url', '');
 $systemUrl = rtrim($db->getSetting('system_url', ''), '/');
+
+// Fallback: URL automatisch erkennen (wie im Mailer), sonst ist der
+// Reset-Link in der E-Mail relativ und damit kaputt.
+if (empty($systemUrl)) {
+    $protocol   = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
+    $scriptPath = dirname($_SERVER['SCRIPT_NAME']);
+    $scriptPath = $scriptPath === '/' ? '' : $scriptPath;
+    $systemUrl  = $protocol . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . $scriptPath;
+}
 
 $error   = '';
 $success = '';
@@ -34,7 +45,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         $rl[] = $now;
         $_SESSION['pwreset_times'] = $rl;
-        $user = $db->fetchOne("SELECT * FROM users WHERE email = ? AND is_active = 1 AND password_hash IS NOT NULL", [$email]);
+
+        // Zusaetzlich zum Session-Throttle: IP-Rate-Limit gegen Mail-Bombing
+        // (max. 5 Reset-Anfragen / 15 Min., umgeht Cookie-Loeschen). Bei Limit
+        // trotzdem die generische Erfolgsmeldung zeigen (keine Information
+        // darueber preisgeben, ob das Konto existiert).
+        $resetLimited = throttleHit($db, 'password_reset', 5, 15) === true;
+
+        $user = $resetLimited
+            ? null
+            : $db->fetchOne("SELECT * FROM users WHERE email = ? AND is_active = 1 AND password_hash IS NOT NULL", [$email]);
 
         // Always show success (don't reveal whether email exists)
         if ($user) {
@@ -83,6 +103,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= __('reset_title') ?> – <?= htmlspecialchars($appTitle) ?></title>
+    <?php if ($faviconUrl): ?>
+    <link rel="icon" href="<?= htmlspecialchars($faviconUrl) ?>">
+    <?php endif; ?>
     <link rel="stylesheet" href="assets/global.css">
     <script>(function(){ const t=localStorage.getItem('theme')||'light'; document.documentElement.setAttribute('data-theme',t); })();</script>
     <style>
@@ -98,9 +121,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         input:focus { outline: none; border-color: var(--accent); }
         .btn { width: 100%; padding: 14px; background: var(--accent); color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.2s; margin-top: 8px; }
         .btn:hover { background: var(--accent-hover); transform: translateY(-2px); }
-        .alert { padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; text-align: left; }
-        .alert-error   { background: #fee; border: 1px solid #fcc; color: #c33; }
-        .alert-success { background: #efe; border: 1px solid #cfc; color: #3c3; }
         .back-link { display: block; margin-top: 22px; color: var(--accent); text-decoration: none; font-size: 14px; }
         .back-link:hover { text-decoration: underline; }
     </style>

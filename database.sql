@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS `sites` (
   `unifi_password` VARCHAR(255) NOT NULL,
   `is_active` TINYINT(1) DEFAULT 1,
   `public_access` TINYINT(1) DEFAULT 0,
+  `ssl_verify` TINYINT(1) NOT NULL DEFAULT 0,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX `idx_active` (`is_active`)
@@ -145,6 +146,16 @@ CREATE TABLE IF NOT EXISTS `audit_log` (
   INDEX `idx_user` (`user_id`),
   INDEX `idx_action` (`action`),
   INDEX `idx_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- IP-basiertes Request-Throttling (anonyme Voucher-Erstellung, Passwort-Resets)
+CREATE TABLE IF NOT EXISTS `request_throttle` (
+  `id` INT PRIMARY KEY AUTO_INCREMENT,
+  `ip_address` VARCHAR(45) NOT NULL,
+  `action` VARCHAR(50) NOT NULL,
+  `weight` INT NOT NULL DEFAULT 1,
+  `requested_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_throttle` (`action`, `ip_address`, `requested_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `password_reset_tokens` (

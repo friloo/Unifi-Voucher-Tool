@@ -114,4 +114,9 @@ class Crypto {
     public static function isEncrypted($value) {
         return is_string($value) && strpos($value, self::PREFIX) === 0;
     }
+
+    /** Prueft, ob ein gueltiger APP_KEY konfiguriert ist (fuer Admin-Warnhinweis). */
+    public static function hasKey() {
+        return self::key() !== null;
+    }
 }

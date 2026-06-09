@@ -35,6 +35,9 @@ document.addEventListener('DOMContentLoaded', updateDarkModeBtn);
                 container.id = 'toast-container';
                 document.body.appendChild(container);
             }
+            // Screenreader ueber neue Toasts informieren
+            container.setAttribute('role', 'status');
+            container.setAttribute('aria-live', 'polite');
         }
         return container;
     }
@@ -92,13 +95,21 @@ document.addEventListener('DOMContentLoaded', function() {
     if (overlay) overlay.addEventListener('click', closeMobileSidebar);
 
     document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') closeMobileSidebar();
+        if (e.key === 'Escape') {
+            closeMobileSidebar();
+            // Offene Modals per Esc schliessen (Accessibility)
+            document.querySelectorAll('.modal.active').forEach(m => m.classList.remove('active'));
+        }
     });
 });
 
 /* === LANGUAGE SWITCHER === */
 function switchLanguage(lang) {
-    fetch('?set_lang=' + lang, { method: 'GET' }).then(() => location.reload());
+    // Direkter Navigationswechsel statt fetch+reload: vermeidet den
+    // "Formular erneut senden?"-Dialog und erhaelt bestehende URL-Parameter.
+    const url = new URL(window.location.href);
+    url.searchParams.set('set_lang', lang);
+    window.location.href = url.toString();
 }
 
 /* === CLIPBOARD === */

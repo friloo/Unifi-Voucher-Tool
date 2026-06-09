@@ -1,0 +1,30 @@
+name: Lint
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  php-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+      - name: PHP Syntax-Check (alle Dateien)
+        run: |
+          set -e
+          fail=0
+          while IFS= read -r f; do
+            php -l "$f" > /dev/null || fail=1
+          done < <(git ls-files '*.php')
+          exit $fail
+      - name: Sprachdateien-Paritaet (de/en)
+        run: |
+          php -r '
+            $de = require "lang/de.php"; $en = require "lang/en.php";
+            $missing = array_merge(array_diff(array_keys($de), array_keys($en)), array_diff(array_keys($en), array_keys($de)));
+            if ($missing) { fwrite(STDERR, "Fehlende Keys: " . implode(", ", $missing) . "\n"); exit(1); }
+            echo "OK: " . count($de) . " Keys synchron\n";
+          '

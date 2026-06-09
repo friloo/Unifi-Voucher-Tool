@@ -102,16 +102,20 @@ if (isset($_GET['code'])) {
     }
     
     $userData = json_decode($userResponse, true);
-    
-    if (!isset($userData['id']) || !isset($userData['mail'])) {
+
+    // Graph liefert 'mail' nur bei Nutzern mit Exchange-Postfach – fuer alle
+    // anderen auf den userPrincipalName zurueckfallen.
+    $userEmail = $userData['mail'] ?? $userData['userPrincipalName'] ?? null;
+
+    if (!isset($userData['id']) || empty($userEmail)) {
         die("Ungültige Benutzer-Daten erhalten: " . htmlspecialchars($userResponse) . "<br><a href='login.php'>Zurück zum Login</a>");
     }
-    
+
     // Benutzer einloggen oder anlegen
     $microsoftUser = [
         'id' => $userData['id'],
-        'email' => $userData['mail'] ?? $userData['userPrincipalName'],
-        'name' => $userData['displayName'] ?? $userData['givenName'] . ' ' . $userData['surname']
+        'email' => $userEmail,
+        'name' => $userData['displayName'] ?? trim(($userData['givenName'] ?? '') . ' ' . ($userData['surname'] ?? ''))
     ];
     
     try {

@@ -5,7 +5,9 @@ require_once __DIR__ . '/Crypto.php';
 
 class Auth {
     private $db;
-    
+    /** Pro Request gecachter DB-Datensatz des Session-Users (false = noch nicht geladen) */
+    private $sessionUser = false;
+
     public function __construct() {
         try {
             $this->db = Database::getInstance();
@@ -18,6 +20,9 @@ class Auth {
             ini_set('session.cookie_httponly', 1);
             ini_set('session.use_strict_mode', 1);
             ini_set('session.cookie_samesite', 'Lax');
+            if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+                ini_set('session.cookie_secure', 1);
+            }
 
             // Opt-in: Sessions in der DB ablegen (für "überall abmelden" / Skalierung)
             try {
@@ -243,6 +248,8 @@ class Auth {
 
     private function recordLoginAttempt($ip, $email) {
         try {
+            // Alte Eintraege aufraeumen, damit die Tabelle nicht unbegrenzt waechst
+            $this->db->query("DELETE FROM login_attempts WHERE attempted_at < DATE_SUB(NOW(), INTERVAL 1 DAY)");
             $this->db->query(
                 "INSERT INTO login_attempts (ip_address, email) VALUES (?, ?)",
                 [$ip, $email]
@@ -309,6 +316,12 @@ class Auth {
     
     // Session setzen
     private function setUserSession($user) {
+        // Session-ID nach erfolgreichem Login rotieren (verhindert Session-Fixation)
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_regenerate_id(true);
+        }
+
+        $this->sessionUser = false; // User-Cache invalidieren
         $_SESSION['user_id'] = $user['id'];
         $_SESSION['user_email'] = $user['email'];
         $_SESSION['user_name'] = $user['name'];
@@ -331,6 +344,7 @@ class Auth {
     
     // Ausloggen
     public function logout() {
+        $this->sessionUser = null;
         $_SESSION = [];
         
         if (isset($_COOKIE[session_name()])) {
@@ -340,6 +354,25 @@ class Auth {
         session_destroy();
     }
     
+    /**
+     * Laedt den Session-User einmal pro Request aus der DB. Dadurch wirken
+     * Rechteaenderungen (Admin entzogen, Konto deaktiviert/geloescht) sofort
+     * und nicht erst nach Ablauf der Session.
+     */
+    private function loadSessionUser() {
+        if ($this->sessionUser === false) {
+            $this->sessionUser = null;
+            if (isset($_SESSION['user_id'])) {
+                $user = $this->db->fetchOne(
+                    "SELECT * FROM users WHERE id = ? AND is_active = 1",
+                    [$_SESSION['user_id']]
+                );
+                $this->sessionUser = $user ?: null;
+            }
+        }
+        return $this->sessionUser;
+    }
+
     // Prüfen ob eingeloggt
     public function isLoggedIn() {
         if (!isset($_SESSION['user_id']) || !isset($_SESSION['login_time'])) {
@@ -354,24 +387,32 @@ class Auth {
             return false;
         }
 
+        // Deaktivierte/geloeschte Konten sofort aussperren
+        if ($this->loadSessionUser() === null) {
+            $this->logout();
+            return false;
+        }
+
         return true;
     }
-    
-    // Prüfen ob Admin
+
+    // Prüfen ob Admin (live aus der DB, nicht aus dem Session-Cache)
     public function isAdmin() {
-        return $this->isLoggedIn() && isset($_SESSION['is_admin']) && $_SESSION['is_admin'] === true;
+        if (!$this->isLoggedIn()) {
+            return false;
+        }
+        $user = $this->loadSessionUser();
+        $isAdmin = $user !== null && (bool)$user['is_admin'];
+        $_SESSION['is_admin'] = $isAdmin;
+        return $isAdmin;
     }
-    
+
     // Aktuellen Benutzer abrufen
     public function getCurrentUser() {
         if (!$this->isLoggedIn()) {
             return null;
         }
-        
-        return $this->db->fetchOne(
-            "SELECT * FROM users WHERE id = ?",
-            [$_SESSION['user_id']]
-        );
+        return $this->loadSessionUser();
     }
     
     // Prüfen ob Benutzer Zugriff auf Site hat

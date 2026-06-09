@@ -47,6 +47,7 @@ try {
     $db       = Database::getInstance();
     $appTitle = $db->getSetting('app_title', 'UniFi Voucher System');
     $logoUrl  = $db->getSetting('logo_url', '');
+    $faviconUrl = $db->getSetting('favicon_url', '');
 
     $m365ClientId     = $db->getSetting('m365_client_id', '');
     $m365ClientSecret = $db->getSetting('m365_client_secret', '');
@@ -86,6 +87,9 @@ try {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= __('login_title') ?> – <?= htmlspecialchars($appTitle) ?></title>
+    <?php if (!empty($faviconUrl)): ?>
+    <link rel="icon" href="<?= htmlspecialchars($faviconUrl) ?>">
+    <?php endif; ?>
     <link rel="stylesheet" href="assets/global.css">
     <script>(function(){ const t=localStorage.getItem('theme')||'light'; document.documentElement.setAttribute('data-theme',t); })();</script>
     <style>
@@ -107,9 +111,6 @@ try {
         .divider { margin: 22px 0; text-align: center; position: relative; }
         .divider::before { content: ''; position: absolute; top: 50%; left: 0; right: 0; height: 1px; background: var(--border-color); }
         .divider span { background: var(--bg-card); padding: 0 15px; color: var(--text-muted); font-size: 13px; position: relative; z-index: 1; }
-        .alert { padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; }
-        .alert-error   { background: #fee; border: 1px solid #fcc; color: #c33; }
-        .alert-success { background: #efe; border: 1px solid #cfc; color: #3c3; }
         .back-link { display: block; margin-top: 20px; color: var(--accent); text-decoration: none; font-size: 14px; }
         .back-link:hover { text-decoration: underline; }
         .local-login-link { display: block; margin-top: 20px; color: var(--text-muted); text-decoration: none; font-size: 13px; }

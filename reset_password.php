@@ -15,6 +15,7 @@ I18n::init();
 $db       = Database::getInstance();
 $appTitle = $db->getSetting('app_title', 'UniFi Voucher System');
 $logoUrl  = $db->getSetting('logo_url', '');
+$faviconUrl = $db->getSetting('favicon_url', '');
 
 $token   = trim($_GET['token'] ?? '');
 $error   = '';
@@ -69,6 +70,9 @@ if ($valid && $_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?= __('reset_new_pw') ?> – <?= htmlspecialchars($appTitle) ?></title>
+    <?php if ($faviconUrl): ?>
+    <link rel="icon" href="<?= htmlspecialchars($faviconUrl) ?>">
+    <?php endif; ?>
     <link rel="stylesheet" href="assets/global.css">
     <script>(function(){ const t=localStorage.getItem('theme')||'light'; document.documentElement.setAttribute('data-theme',t); })();</script>
     <style>
@@ -84,9 +88,6 @@ if ($valid && $_SERVER['REQUEST_METHOD'] === 'POST') {
         input:focus { outline: none; border-color: var(--accent); }
         .btn { width: 100%; padding: 14px; background: var(--accent); color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.2s; margin-top: 8px; }
         .btn:hover { background: var(--accent-hover); transform: translateY(-2px); }
-        .alert { padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; text-align: left; }
-        .alert-error   { background: #fee; border: 1px solid #fcc; color: #c33; }
-        .alert-success { background: #efe; border: 1px solid #cfc; color: #3c3; }
         .back-link { display: block; margin-top: 22px; color: var(--accent); text-decoration: none; font-size: 14px; }
         .back-link:hover { text-decoration: underline; }
         .pw-strength { height: 4px; border-radius: 2px; margin-top: 6px; transition: all 0.3s; background: var(--border-color); }

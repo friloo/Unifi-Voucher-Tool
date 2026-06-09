@@ -116,7 +116,8 @@ if (empty($cronToken)) {
     exit;
 }
 
-if ($providedToken !== $cronToken) {
+// hash_equals: zeitkonstanter Vergleich (kein Timing-Seitenkanal)
+if (!hash_equals((string)$cronToken, (string)$providedToken)) {
     outputResponse([
         'success' => false,
         'message' => 'Ungültiger Token'

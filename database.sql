@@ -118,6 +118,16 @@ CREATE TABLE IF NOT EXISTS `audit_log` (
   INDEX `idx_created` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- IP-basiertes Request-Throttling (anonyme Voucher-Erstellung, Passwort-Resets)
+CREATE TABLE IF NOT EXISTS `request_throttle` (
+  `id` INT PRIMARY KEY AUTO_INCREMENT,
+  `ip_address` VARCHAR(45) NOT NULL,
+  `action` VARCHAR(50) NOT NULL,
+  `weight` INT NOT NULL DEFAULT 1,
+  `requested_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_throttle` (`action`, `ip_address`, `requested_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS `password_reset_tokens` (
   `id` INT PRIMARY KEY AUTO_INCREMENT,
   `user_id` INT NOT NULL,

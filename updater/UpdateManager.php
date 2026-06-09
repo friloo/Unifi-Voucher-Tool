@@ -197,18 +197,33 @@ class UpdateManager
             }
             $stagingRoot = $this->resolveStagingRoot($stagingDir);
 
-            // 4) Staging -> Production (geschuetzte Pfade ueberspringen)
-            $this->setProgress(65, 'Wende Update an …');
-            $this->applyStaging($stagingRoot);
+            // 4) Backup aller Dateien anlegen, die gleich ueberschrieben werden.
+            //    Schlaegt das Anwenden oder eine Migration fehl, wird der alte
+            //    Stand wiederhergestellt statt eine halb-aktualisierte
+            //    Installation online zu nehmen.
+            $this->setProgress(60, 'Sichere bestehende Dateien …');
+            $backupDir = $this->storageDir . '/.backup-last';
+            $this->cleanDir($backupDir);
+            $this->backupExisting($stagingRoot, $backupDir);
 
-            // 5) Migrationen ausfuehren
-            $this->setProgress(80, 'Fuehre Datenbank-Migrationen aus …');
-            $runner = new MigrationRunner(
-                $this->db->getConnection(),
-                __DIR__ . '/migrations',
-                $this->storageDir
-            );
-            $runner->runPending(true);
+            try {
+                // 5) Staging -> Production (geschuetzte Pfade ueberspringen)
+                $this->setProgress(65, 'Wende Update an …');
+                $this->applyStaging($stagingRoot);
+
+                // 6) Migrationen ausfuehren
+                $this->setProgress(80, 'Fuehre Datenbank-Migrationen aus …');
+                $runner = new MigrationRunner(
+                    $this->db->getConnection(),
+                    __DIR__ . '/migrations',
+                    $this->storageDir
+                );
+                $runner->runPending(true);
+            } catch (\Throwable $e) {
+                $this->setProgress(70, 'Fehler – stelle vorherigen Stand wieder her …');
+                $this->restoreBackup($backupDir);
+                throw $e;
+            }
 
             // 6) Caches leeren
             $this->setProgress(90, 'Leere Caches …');
@@ -280,6 +295,15 @@ class UpdateManager
         if ($zip->open($zipPath) !== true) {
             throw new \RuntimeException('ZIP konnte nicht geoeffnet werden.');
         }
+        // Zip-Slip-Schutz: Eintraege mit Pfad-Traversal oder absoluten Pfaden
+        // ablehnen, bevor irgendetwas entpackt wird.
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $name = (string)$zip->getNameIndex($i);
+            if ($name === '' || $name[0] === '/' || strpos($name, '..') !== false || strpos($name, ':') !== false) {
+                $zip->close();
+                throw new \RuntimeException("ZIP enthaelt unsicheren Pfad: $name");
+            }
+        }
         if (!is_dir($dest)) {
             @mkdir($dest, 0775, true);
         }
@@ -308,6 +332,10 @@ class UpdateManager
                 continue;
             }
             $relPath = $entry['path'];
+            // Pfad-Traversal-Schutz: Proxy-Antworten nicht blind vertrauen
+            if ($relPath[0] === '/' || strpos($relPath, '..') !== false || strpos($relPath, ':') !== false) {
+                throw new \RuntimeException("Dateiliste enthaelt unsicheren Pfad: $relPath");
+            }
             [$st, $content] = $this->httpGet($this->proxyUrl . '/download/' . str_replace('%2F', '/', rawurlencode($relPath)));
             if ($st !== 200) {
                 throw new \RuntimeException("Download fehlgeschlagen: $relPath (HTTP $st)");
@@ -366,6 +394,64 @@ class UpdateManager
                     throw new \RuntimeException("Konnte Datei nicht schreiben: $rel");
                 }
             }
+        }
+    }
+
+    /**
+     * Sichert alle Produktionsdateien, die durch das Staging ueberschrieben
+     * wuerden, in ein Backup-Verzeichnis (Spiegelstruktur).
+     */
+    private function backupExisting(string $stagingRoot, string $backupDir): void
+    {
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($stagingRoot, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST
+        );
+        foreach ($iterator as $item) {
+            if ($item->isDir()) {
+                continue;
+            }
+            $rel = ltrim(str_replace('\\', '/', substr($item->getPathname(), strlen($stagingRoot))), '/');
+            if ($rel === '' || $this->isProtected($rel)) {
+                continue;
+            }
+            $existing = $this->rootDir . '/' . $rel;
+            if (!is_file($existing)) {
+                continue;
+            }
+            $target = $backupDir . '/' . $rel;
+            $dir = dirname($target);
+            if (!is_dir($dir)) {
+                @mkdir($dir, 0775, true);
+            }
+            @copy($existing, $target);
+        }
+    }
+
+    /** Stellt ein zuvor angelegtes Backup wieder in die Produktion zurueck. */
+    private function restoreBackup(string $backupDir): void
+    {
+        if (!is_dir($backupDir)) {
+            return;
+        }
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($backupDir, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST
+        );
+        foreach ($iterator as $item) {
+            if ($item->isDir()) {
+                continue;
+            }
+            $rel = ltrim(str_replace('\\', '/', substr($item->getPathname(), strlen($backupDir))), '/');
+            if ($rel === '') {
+                continue;
+            }
+            $target = $this->rootDir . '/' . $rel;
+            $dir = dirname($target);
+            if (!is_dir($dir)) {
+                @mkdir($dir, 0775, true);
+            }
+            @copy($item->getPathname(), $target);
         }
     }
 

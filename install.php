@@ -159,11 +159,12 @@ if ($step === 5 && $_SERVER['REQUEST_METHOD'] === 'POST') {
         file_put_contents(__DIR__ . '/config.php', $configContent);
         
         // .htaccess erstellen (ohne Rewrite Rules die Probleme machen)
+        // "Require all denied" = Apache 2.4-Syntax; das alte "Order Allow,Deny"
+        // (2.2) fuehrt auf 2.4 ohne mod_access_compat zu einem 500er.
         $htaccess = "# UniFi Voucher System\n\n";
         $htaccess .= "# Security\n";
-        $htaccess .= "<FilesMatch \"(config\\.php|database\\.sql|install\\.php|test\\.php|m365_debug\\.php|\\.md)$\">\n";
-        $htaccess .= "    Order Allow,Deny\n";
-        $htaccess .= "    Deny from all\n";
+        $htaccess .= "<FilesMatch \"(config\\.php|database\\.sql|install\\.php|test\\.php|m365_debug\\.php|cron_test\\.php|\\.md)$\">\n";
+        $htaccess .= "    Require all denied\n";
         $htaccess .= "</FilesMatch>\n\n";
         $htaccess .= "DirectoryIndex index.php\n";
         file_put_contents(__DIR__ . '/.htaccess', $htaccess);

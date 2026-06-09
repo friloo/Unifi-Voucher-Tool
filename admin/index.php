@@ -26,6 +26,9 @@ if (isset($_GET['ajax_stats'])) {
         $syncErrors = [];
 
         if ($syncFirst) {
+            // Mehrere Sites werden sequentiell synchronisiert (je bis zu ~15s
+            // bei Timeout) – PHP-Default von 30s reicht dann nicht.
+            @set_time_limit(30 + count($sites) * 20);
             foreach ($sites as $site) {
                 try {
                     $ctrl = new UniFiController($site['unifi_controller_url'], $site['unifi_username'], Crypto::decrypt($site['unifi_password']), $site['site_id']);
@@ -122,11 +125,6 @@ $currentPage = 'dashboard';
     .table th { text-align: left; padding: 11px 14px; background: var(--bg-table-head); color: var(--text-muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
     .table td { padding: 13px 14px; border-bottom: 1px solid var(--border-color); color: var(--text-primary); font-size: 14px; }
     .table tr:last-child td { border-bottom: none; }
-    .badge { display: inline-block; padding: 3px 9px; border-radius: 5px; font-size: 11px; font-weight: 500; }
-    .badge-success { background: #d4edda; color: #155724; }
-    .badge-warning { background: #fff3cd; color: #856404; }
-    .badge-danger  { background: #f8d7da; color: #721c24; }
-    .badge-info    { background: var(--bg-badge-info); color: var(--text-badge-info); }
     .btn-primary   { background: var(--accent); color: white; }
     .btn-primary:hover { background: var(--accent-hover); }
     .btn-success   { background: var(--success); color: white; }
@@ -160,6 +158,13 @@ $currentPage = 'dashboard';
     .empty-state i { font-size: 40px; margin-bottom: 15px; opacity: .3; display: block; }
     @media(max-width:768px){ .main-content{ margin-left:0!important; } .stats-grid{ grid-template-columns:1fr 1fr; } }
 </style>
+
+<?php if (!Crypto::hasKey()): ?>
+<div class="alert alert-error">
+    <i class="fas fa-exclamation-triangle"></i>
+    <span><?= __('crypto_warning') ?></span>
+</div>
+<?php endif; ?>
 
 <div class="page-header">
     <div>

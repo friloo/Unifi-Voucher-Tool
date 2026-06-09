@@ -1,5 +1,12 @@
 <?php
 // Minimaler Test für Cron-Sync Debugging
+// Nur fuer angemeldete Admins zugaenglich (leakt sonst DB-Schema & Token-Status)
+require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/includes/Database.php';
+require_once __DIR__ . '/includes/Auth.php';
+$cronTestAuth = new Auth();
+$cronTestAuth->requireAdmin();
+
 header('Content-Type: application/json');
 
 echo json_encode(['step' => 1, 'message' => 'PHP läuft']);

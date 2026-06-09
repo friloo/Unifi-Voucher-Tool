@@ -8,6 +8,7 @@ require_once __DIR__ . '/../includes/Database.php';
 require_once __DIR__ . '/../includes/Auth.php';
 require_once __DIR__ . '/../includes/Mailer.php';
 require_once __DIR__ . '/../includes/I18n.php';
+require_once __DIR__ . '/../includes/Helpers.php';
 
 $auth = new Auth();
 $auth->requireAdmin();
@@ -20,10 +21,11 @@ I18n::init();
 $error   = '';
 $success = '';
 
-// Send password reset link
-if (isset($_GET['send_reset']) && isset($_GET['token'])) {
-    if ($auth->validateCsrfToken($_GET['token'])) {
-        $targetUser = $db->fetchOne("SELECT * FROM users WHERE id=? AND is_active=1 AND password_hash IS NOT NULL", [(int)$_GET['send_reset']]);
+// Send password reset link (POST statt GET: kein CSRF-Token in URLs/Referrern,
+// keine versehentliche Ausloesung durch Link-Prefetching)
+if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['send_reset'])) {
+    if ($auth->validateCsrfToken($_POST['csrf_token'] ?? '')) {
+        $targetUser = $db->fetchOne("SELECT * FROM users WHERE id=? AND is_active=1 AND password_hash IS NOT NULL", [(int)$_POST['send_reset']]);
         if ($targetUser) {
             try {
                 $db->execute("DELETE FROM password_reset_tokens WHERE user_id=?", [$targetUser['id']]);
@@ -39,12 +41,14 @@ if (isset($_GET['send_reset']) && isset($_GET['token'])) {
                 $resetUrl = $systemUrl . '/reset_password.php?token=' . $token;
                 $mailer->sendRaw($targetUser['email'], $appTitle . ' – Passwort zurücksetzen',
                     "Hallo {$targetUser['name']},\n\nEin Administrator hat für Sie einen Passwort-Reset-Link erstellt:\n\n{$resetUrl}\n\n(Gültig für 1 Stunde)\n\n{$appTitle}");
-                $success = 'Passwort-Reset-Link wurde an ' . htmlspecialchars($targetUser['email']) . ' gesendet.';
+                flashSet(__('reset_link_sent', ['email' => $targetUser['email']]));
+                header('Location: users.php');
+                exit;
             } catch (Exception $e) {
                 $error = 'Fehler beim Senden: ' . $e->getMessage();
             }
         } else {
-            $error = 'Benutzer nicht gefunden oder kein lokales Passwort.';
+            $error = __('reset_link_failed');
         }
     } else {
         $error = __('error_csrf');
@@ -60,6 +64,11 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['edit_user'])) {
             $userId  = (int)$_POST['user_id'];
             $isAdmin = isset($_POST['is_admin']) ? 1 : 0;
             $siteIds = $_POST['site_ids'] ?? [];
+            // Lockout-Schutz: Der letzte Weg ins Admin-Panel darf nicht
+            // versehentlich gekappt werden.
+            if ($userId === (int)$_SESSION['user_id'] && !$isAdmin) {
+                throw new Exception(__('error_self_demote'));
+            }
             $oldUser = $db->fetchOne("SELECT * FROM users WHERE id=?", [$userId]);
             $oldSites= $db->fetchAll("SELECT s.name FROM sites s INNER JOIN user_site_access usa ON s.id=usa.site_id WHERE usa.user_id=?", [$userId]);
             $db->query("UPDATE users SET is_admin=? WHERE id=?", [$isAdmin, $userId]);
@@ -83,8 +92,10 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['edit_user'])) {
             if (!empty($removedSites)) $changes[] = 'Zugriff entfernt von: ' . implode(', ', $removedSites);
             if ($isAdmin && !$oldUser['is_admin']) $changes[] = 'Sie haben nun Zugriff auf alle Sites';
             if (!empty($changes)) $mailer->sendUserNotification($oldUser['email'], $oldUser['name'], $changes);
-            $success = __('users_updated') . (!empty($changes) ? ' '.__('users_notified') : '');
             $auth->writeAuditLog($_SESSION['user_id'], 'user_edit', 'user', $userId, implode('; ', $changes) ?: 'Keine Änderungen');
+            flashSet(__('users_updated') . (!empty($changes) ? ' '.__('users_notified') : ''));
+            header('Location: users.php');
+            exit;
         } catch (Exception $e) { $error = $e->getMessage(); }
     }
 }
@@ -103,49 +114,59 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['add_user'])) {
             if (empty($email)||empty($name)||empty($password)) throw new Exception(__('error_fill_all'));
             if (!filter_var($email, FILTER_VALIDATE_EMAIL)) throw new Exception(__('error_email_invalid'));
             if (strlen($password) < 8) throw new Exception(__('settings_pw_minlength'));
-            if ($db->fetchOne("SELECT id FROM users WHERE email=?", [$email])) throw new Exception('E-Mail bereits vorhanden');
+            if ($db->fetchOne("SELECT id FROM users WHERE email=?", [$email])) throw new Exception(__('error_email_exists'));
             $userId = $auth->registerUser($email, $name, $password, $isAdmin);
-            if (!$userId) throw new Exception('Benutzer konnte nicht erstellt werden');
+            if (!$userId) throw new Exception(__('error_user_create'));
             if (!$isAdmin && !empty($siteIds)) {
                 foreach ($siteIds as $siteId) {
                     $db->execute("INSERT INTO user_site_access (user_id, site_id) VALUES (?,?)", [$userId, $siteId]);
                 }
             }
             $auth->writeAuditLog($_SESSION['user_id'], 'user_create', 'user', $userId, "Benutzer {$name} erstellt");
-            $success = __('users_added');
+            flashSet(__('users_added'));
+            header('Location: users.php');
+            exit;
         } catch (Exception $e) { $error = $e->getMessage(); }
     }
 }
 
-// Delete user
-if (isset($_GET['delete']) && isset($_GET['token'])) {
-    if ($auth->validateCsrfToken($_GET['token'])) {
-        $deleteId = (int)$_GET['delete'];
+// Delete user (POST + PRG)
+if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['delete_user'])) {
+    if ($auth->validateCsrfToken($_POST['csrf_token'] ?? '')) {
+        $deleteId = (int)$_POST['delete_user'];
         if ($deleteId === (int)$_SESSION['user_id']) {
-            $error = 'Sie können sich nicht selbst löschen';
+            $error = __('error_self_delete');
         } else {
             $db->query("DELETE FROM users WHERE id=?", [$deleteId]);
             $auth->writeAuditLog($_SESSION['user_id'], 'user_delete', 'user', $deleteId, 'Benutzer gelöscht');
-            $success = __('users_deleted');
+            flashSet(__('users_deleted'));
+            header('Location: users.php');
+            exit;
         }
     } else { $error = __('error_csrf'); }
 }
 
-// Toggle user active
-if (isset($_GET['toggle']) && isset($_GET['token'])) {
-    if ($auth->validateCsrfToken($_GET['token'])) {
-        $toggleId = (int)$_GET['toggle'];
+// Toggle user active (POST + PRG)
+if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['toggle_user'])) {
+    if ($auth->validateCsrfToken($_POST['csrf_token'] ?? '')) {
+        $toggleId = (int)$_POST['toggle_user'];
         if ($toggleId === (int)$_SESSION['user_id']) {
-            $error = 'Sie können sich nicht selbst deaktivieren';
+            $error = __('error_self_deactivate');
         } else {
             $user = $db->fetchOne("SELECT is_active FROM users WHERE id=?", [$toggleId]);
             if ($user) {
                 $newStatus = $user['is_active'] ? 0 : 1;
                 $db->query("UPDATE users SET is_active=? WHERE id=?", [$newStatus, $toggleId]);
-                $success = 'Benutzer-Status aktualisiert!';
+                flashSet(__('users_status_updated'));
+                header('Location: users.php');
+                exit;
             }
         }
     } else { $error = __('error_csrf'); }
+}
+
+if (empty($success) && empty($error) && ($flash = flashGet())) {
+    $success = $flash['message'];
 }
 
 $users   = $db->fetchAll("SELECT * FROM users ORDER BY name");
@@ -169,19 +190,11 @@ $currentPage = 'users';
     .card { background: var(--bg-card); border-radius: 14px; box-shadow: 0 2px 10px var(--shadow); border: 1px solid var(--border-color); overflow: hidden; margin-bottom: 24px; }
     .card-header { padding: 18px 22px; border-bottom: 1px solid var(--border-color); }
     .card-title { font-size: 16px; font-weight: 600; color: var(--text-primary); }
-    .alert { padding: 13px 18px; border-radius: 10px; font-size: 14px; margin-bottom: 20px; }
-    .alert-error   { background: #fee; border: 1px solid #fcc; color: #c33; }
-    .alert-success { background: #efe; border: 1px solid #cfc; color: #3c3; }
     .table { width: 100%; border-collapse: collapse; }
     .table th { text-align: left; padding: 12px 15px; background: var(--bg-table-head); color: var(--text-muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
     .table td { padding: 13px 15px; border-bottom: 1px solid var(--border-color); color: var(--text-primary); font-size: 14px; }
     .table tr:last-child td { border-bottom: none; }
     .table tr:hover { background: var(--bg-hover); }
-    .badge { display: inline-block; padding: 3px 9px; border-radius: 5px; font-size: 11px; font-weight: 500; margin: 2px; }
-    .badge-success { background: #d4edda; color: #155724; }
-    .badge-warning { background: #fff3cd; color: #856404; }
-    .badge-danger  { background: #f8d7da; color: #721c24; }
-    .badge-info    { background: var(--bg-badge-info); color: var(--text-badge-info); }
     .btn { padding: 8px 16px; border-radius: 8px; border: none; font-weight: 500; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 7px; transition: all .2s; font-size: 13px; }
     .btn-primary { background: var(--accent); color: white; }
     .btn-primary:hover { background: var(--accent-hover); }
@@ -293,22 +306,35 @@ $currentPage = 'users';
                                 <i class="fas fa-edit"></i>
                             </button>
                             <?php if ($user['id'] != $_SESSION['user_id']): ?>
-                                <a href="?toggle=<?= $user['id'] ?>&token=<?= $auth->getCsrfToken() ?>"
-                                   class="btn btn-secondary btn-sm" title="<?= $user['is_active'] ? __('sites_deactivate') : __('sites_activate') ?>">
-                                    <i class="fas fa-<?= $user['is_active'] ? 'pause' : 'play' ?>"></i>
-                                </a>
+                                <form method="post" style="display:inline;">
+                                    <input type="hidden" name="csrf_token" value="<?= $auth->getCsrfToken() ?>">
+                                    <input type="hidden" name="toggle_user" value="<?= $user['id'] ?>">
+                                    <button type="submit" class="btn btn-secondary btn-sm"
+                                            title="<?= $user['is_active'] ? __('sites_deactivate') : __('sites_activate') ?>"
+                                            aria-label="<?= $user['is_active'] ? __('sites_deactivate') : __('sites_activate') ?>">
+                                        <i class="fas fa-<?= $user['is_active'] ? 'pause' : 'play' ?>"></i>
+                                    </button>
+                                </form>
                                 <?php if ($smtpEnabled && !empty($user['password_hash'])): ?>
-                                <a href="?send_reset=<?= $user['id'] ?>&token=<?= $auth->getCsrfToken() ?>"
-                                   class="btn btn-warning btn-sm" title="<?= __('users_reset_pw') ?>"
-                                   onclick="return confirm('Passwort-Reset-Link senden an <?= htmlspecialchars($user['email'], ENT_QUOTES) ?>?')">
-                                    <i class="fas fa-key"></i>
-                                </a>
+                                <form method="post" style="display:inline;"
+                                      onsubmit="return confirm('<?= addslashes(__('confirm_send_reset', ['email' => $user['email']])) ?>')">
+                                    <input type="hidden" name="csrf_token" value="<?= $auth->getCsrfToken() ?>">
+                                    <input type="hidden" name="send_reset" value="<?= $user['id'] ?>">
+                                    <button type="submit" class="btn btn-warning btn-sm"
+                                            title="<?= __('users_reset_pw') ?>" aria-label="<?= __('users_reset_pw') ?>">
+                                        <i class="fas fa-key"></i>
+                                    </button>
+                                </form>
                                 <?php endif; ?>
-                                <a href="?delete=<?= $user['id'] ?>&token=<?= $auth->getCsrfToken() ?>"
-                                   class="btn btn-danger btn-sm" title="<?= __('btn_delete') ?>"
-                                   onclick="return confirm('Benutzer wirklich löschen?')">
-                                    <i class="fas fa-trash"></i>
-                                </a>
+                                <form method="post" style="display:inline;"
+                                      onsubmit="return confirm('<?= addslashes(__('confirm_delete_user')) ?>')">
+                                    <input type="hidden" name="csrf_token" value="<?= $auth->getCsrfToken() ?>">
+                                    <input type="hidden" name="delete_user" value="<?= $user['id'] ?>">
+                                    <button type="submit" class="btn btn-danger btn-sm"
+                                            title="<?= __('btn_delete') ?>" aria-label="<?= __('btn_delete') ?>">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </form>
                             <?php endif; ?>
                         </div>
                     </td>

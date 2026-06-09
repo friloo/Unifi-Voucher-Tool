@@ -23,13 +23,19 @@ if (isset($_GET['export_csv']) && isset($_GET['site_id'])) {
     if (!$site) { http_response_code(404); exit; }
     $rows = $db->fetchAll("SELECT voucher_code,voucher_name,max_uses,expire_minutes,status,used_count,created_at,expires_at FROM vouchers WHERE site_id=? ORDER BY created_at DESC", [$siteId]);
     $filename = 'vouchers_' . preg_replace('/[^a-z0-9]/i','_',$site['name']) . '_' . date('Ymd_His') . '.csv';
+    // Schutz vor CSV/Excel-Formula-Injection: Zellen, die mit =, +, -, @ oder
+    // Tab beginnen (Nutzereingabe voucher_name!), mit Apostroph neutralisieren.
+    $csvSafe = function ($v) {
+        $v = (string)$v;
+        return preg_match('/^[=+\-@\t]/', $v) ? "'" . $v : $v;
+    };
     header('Content-Type: text/csv; charset=UTF-8');
     header('Content-Disposition: attachment; filename="' . $filename . '"');
     $out = fopen('php://output','w');
     fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF));
     fputcsv($out,['Code','Name','Max. Geräte','Gültigkeit (Min)','Status','Genutzt','Erstellt','Läuft ab'],';');
     foreach ($rows as $r) {
-        fputcsv($out,[$r['voucher_code'],$r['voucher_name'],$r['max_uses'],$r['expire_minutes'],$r['status'],$r['used_count'],$r['created_at'],$r['expires_at']??''],';');
+        fputcsv($out,[$csvSafe($r['voucher_code']),$csvSafe($r['voucher_name']),$r['max_uses'],$r['expire_minutes'],$r['status'],$r['used_count'],$r['created_at'],$r['expires_at']??''],';');
     }
     fclose($out); exit;
 }
@@ -86,9 +92,9 @@ if (isset($_POST['ajax_delete']) && isset($_POST['voucher_id']) && isset($_POST[
         $ctrl = new UniFiController($site['unifi_controller_url'],$site['unifi_username'],Crypto::decrypt($site['unifi_password']),$site['site_id']);
         if ($ctrl->deleteVoucher($voucherId)) {
             $db->execute("DELETE FROM vouchers WHERE unifi_voucher_id=? AND site_id=?", [$voucherId,$siteId]);
-            echo json_encode(['success'=>true,'message'=>'Voucher erfolgreich gelöscht!']);
+            echo json_encode(['success'=>true,'message'=>__('voucher_deleted')]);
         } else {
-            echo json_encode(['success'=>false,'message'=>'Voucher konnte nicht gelöscht werden']);
+            echo json_encode(['success'=>false,'message'=>__('voucher_delete_failed')]);
         }
     } catch (Exception $e) {
         echo json_encode(['success'=>false,'message'=>'Fehler: '.$e->getMessage()]);
@@ -151,11 +157,6 @@ $currentPage  = 'vouchers';
     .table tr:last-child td { border-bottom: none; }
     .table tr:hover { background: var(--bg-hover); }
     .table tr.deleting { opacity: .45; pointer-events: none; }
-    .badge { display: inline-block; padding: 3px 9px; border-radius: 5px; font-size: 11px; font-weight: 500; }
-    .badge-success { background: #d4edda; color: #155724; }
-    .badge-warning { background: #fff3cd; color: #856404; }
-    .badge-danger  { background: #f8d7da; color: #721c24; }
-    .badge-info    { background: var(--bg-badge-info); color: var(--text-badge-info); }
     code { background: var(--bg-hover); padding: 4px 8px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 12px; letter-spacing: 1px; }
     .empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
     .empty-state i { font-size: 42px; margin-bottom: 18px; opacity: .3; display: block; }
@@ -270,7 +271,7 @@ async function loadVouchers(syncFirst=false) {
     refreshBtn.disabled = false;
     refreshBtn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${syncFirst ? '<?= addslashes(__('btn_refresh')) ?>' : '<?= addslashes(__('btn_refresh')) ?>'}`;
 
-    document.getElementById('voucherContent').innerHTML = `<div class="loading"><i class="fas fa-spinner"></i><span>${syncFirst ? 'Synchronisiere...' : 'Lade...'}</span></div>`;
+    document.getElementById('voucherContent').innerHTML = `<div class="loading"><i class="fas fa-spinner"></i><span>${syncFirst ? '<?= addslashes(__('syncing')) ?>' : '<?= addslashes(__('loading')) ?>'}</span></div>`;
 
     try {
         const result = await fetch(`vouchers.php?ajax_get_vouchers=1&site_id=${siteId}${syncFirst?'&sync=1':''}`).then(r=>r.json());
@@ -286,7 +287,7 @@ async function loadVouchers(syncFirst=false) {
             const csvBtn = document.getElementById('csvExportBtn');
             csvBtn.style.display = 'inline-flex';
             csvBtn.href = `vouchers.php?export_csv=1&site_id=${siteId}&token=${csrfToken}`;
-            if (syncFirst) showToast('success', '<?= addslashes(__('btn_refresh')) ?>', `${result.count} Vouchers geladen`);
+            if (syncFirst) showToast('success', '<?= addslashes(__('btn_refresh')) ?>', <?= json_encode(__('vouchers_loaded')) ?>.replace('{count}', result.count));
         } else {
             document.getElementById('voucherContent').innerHTML = `<div class="empty-state"><i class="fas fa-exclamation-circle" style="color:var(--danger)"></i><p>${result.message}</p></div>`;
             document.getElementById('statsContainer').style.display = 'none';
@@ -378,7 +379,7 @@ function renderVouchers() {
 
         html += `<tr id="voucher-${v._id}">
             <td><strong>${createDate.toLocaleDateString('de-DE')}</strong><br><small style="color:var(--text-muted)">${createDate.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}</small></td>
-            <td><code onclick="copyToClipboard('${escapeHtml(v.formatted_code||'')}','Kopiert!')" title="Kopieren" style="cursor:pointer">${escapeHtml(v.formatted_code||'')}</code></td>
+            <td><code onclick="copyToClipboard('${escapeHtml(v.formatted_code||'')}','<?= addslashes(__('toast_copied')) ?>')" title="<?= addslashes(__('click_to_copy')) ?>" style="cursor:pointer">${escapeHtml(v.formatted_code||'')}</code></td>
             <td class="voucher-note" title="${escapeHtml(v.note||'-')}">${escapeHtml(v.note||'-')}</td>
             <td>${statusBadge}</td>
             <td><div class="usage-info"><span>${v.used}/${v.quota>0?v.quota:'∞'}</span>${v.quota>0?`<div class="usage-bar"><div class="usage-bar-fill" style="width:${usagePct}%"></div></div>`:''}</div></td>
@@ -408,7 +409,7 @@ function renderVouchers() {
 function escapeHtml(t) { const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
 
 async function deleteVoucher(voucherId) {
-    if (!confirm('Voucher wirklich löschen?')) return;
+    if (!confirm('<?= addslashes(__('confirm_delete_voucher')) ?>')) return;
     const row = document.getElementById(`voucher-${voucherId}`);
     if (row) row.classList.add('deleting');
     try {

@@ -22,7 +22,7 @@ class Mailer {
         $this->smtpUsername = $this->db->getSetting('smtp_username', '');
         $this->smtpPassword = $this->db->getSetting('smtp_password', '');
         $this->smtpEncryption = $this->db->getSetting('smtp_encryption', 'tls');
-        $this->fromEmail = $this->db->getSetting('smtp_from_email', 'noreply@' . $_SERVER['HTTP_HOST']);
+        $this->fromEmail = $this->db->getSetting('smtp_from_email', 'noreply@' . ($_SERVER['HTTP_HOST'] ?? 'localhost'));
         $this->fromName = $this->db->getSetting('smtp_from_name', $this->db->getSetting('app_title', 'UniFi Voucher System'));
     }
     
@@ -49,24 +49,30 @@ class Mailer {
     
     private function sendWithSmtp($to, $subject, $body, $isHtml = false) {
         try {
+            // Hostname auch im CLI-Kontext (Cron) verfuegbar
+            $heloHost = $_SERVER['HTTP_HOST'] ?? (gethostname() ?: 'localhost');
+
             // Verbindung aufbauen
             $socket = $this->connectToSmtp();
-            
+
             // EHLO
-            $this->smtpCommand($socket, "EHLO " . $_SERVER['HTTP_HOST']);
-            
+            $this->smtpCommand($socket, "EHLO " . $heloHost);
+
             // STARTTLS wenn nötig
             if ($this->smtpEncryption === 'tls') {
                 $this->smtpCommand($socket, "STARTTLS");
                 stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT);
-                $this->smtpCommand($socket, "EHLO " . $_SERVER['HTTP_HOST']);
+                $this->smtpCommand($socket, "EHLO " . $heloHost);
             }
-            
-            // AUTH LOGIN
-            $this->smtpCommand($socket, "AUTH LOGIN");
-            $this->smtpCommand($socket, base64_encode($this->smtpUsername));
-            $this->smtpCommand($socket, base64_encode($this->smtpPassword));
-            
+
+            // AUTH LOGIN – nur wenn Zugangsdaten konfiguriert sind
+            // (Server ohne Auth lehnen ein leeres AUTH LOGIN sonst ab)
+            if ($this->smtpUsername !== '') {
+                $this->smtpCommand($socket, "AUTH LOGIN");
+                $this->smtpCommand($socket, base64_encode($this->smtpUsername));
+                $this->smtpCommand($socket, base64_encode($this->smtpPassword));
+            }
+
             // MAIL FROM
             $this->smtpCommand($socket, "MAIL FROM:<{$this->fromEmail}>");
             
@@ -89,13 +95,14 @@ class Mailer {
             }
             
             $message .= "\r\n";
-            
-            // Body - bei Plain Text Zeilenumbrüche konvertieren
-            if (!$isHtml) {
-                $body = nl2br($body, false); // Für Plain Text
-                $body = str_replace('<br>', "\r\n", $body);
-            }
-            
+
+            // Zeilenumbrueche auf CRLF normalisieren (der fruehere
+            // nl2br/str_replace-Umweg hat Umbrueche verdoppelt)
+            $body = preg_replace("/\r\n|\r|\n/", "\r\n", $body);
+            // SMTP-Dot-Stuffing: Zeilen, die mit '.' beginnen, wuerden sonst
+            // die DATA-Phase vorzeitig beenden (RFC 5321, 4.5.2)
+            $body = preg_replace('/^\./m', '..', $body);
+
             $message .= $body;
             $message .= "\r\n.\r\n";
             

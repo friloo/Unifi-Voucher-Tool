@@ -93,12 +93,12 @@ return [
     'voucher_create_btn'    => 'Create Voucher',
     'voucher_creating'      => 'Creating Voucher...',
     'voucher_success_title' => '✓ Your Access Code',
-    'voucher_validity'      => 'Valid for {minutes} minutes from creation',
+    'voucher_validity'      => 'Valid for {duration} from creation',
     'voucher_qr_label'      => 'Scan QR code to connect',
     'voucher_print_btn'     => 'Print Code',
     'voucher_no_sites'      => 'No available sites found.',
     'voucher_no_sites_admin'=> 'Click here to create sites',
-    'voucher_no_sites_user' => 'Please contact your administrator.',
+    'voucher_no_sites_user' => 'Your account has no site access yet. Please contact your administrator to be granted permissions.',
     'voucher_template_select'=> '-- No Profile (manual) --',
     'voucher_template_label'=> 'Quick Profile (optional)',
 
@@ -286,4 +286,59 @@ return [
     'never'             => 'Never',
     'unknown'           => 'Unknown',
     'or'                => 'or',
+
+    // Durations (human readable)
+    'dur_minutes'       => '{n} minutes',
+    'dur_hour_one'      => '1 hour',
+    'dur_hours'         => '{n} hours',
+    'dur_day_one'       => '1 day',
+    'dur_days'          => '{n} days',
+
+    // Voucher creation (messages)
+    'voucher_created_ok'   => 'Voucher created successfully!',
+    'voucher_created_mail' => 'Voucher created. Email sent.',
+    'voucher_name_default' => 'Guest',
+    'voucher_deleted'      => 'Voucher deleted successfully!',
+    'voucher_delete_failed'=> 'Voucher could not be deleted',
+    'error_rate_limited'   => 'Too many requests. Please wait a moment.',
+
+    // Clipboard / UI
+    'toast_copied'      => 'Copied!',
+    'click_to_copy'     => 'Click to copy',
+    'copy_hint'         => 'Click a code to copy it',
+    'loading'           => 'Loading…',
+    'syncing'           => 'Syncing…',
+    'vouchers_loaded'   => '{count} vouchers loaded',
+
+    // Confirm dialogs
+    'confirm_delete_user'     => 'Really delete this user?',
+    'confirm_delete_site'     => 'Really delete this site?',
+    'confirm_delete_template' => 'Really delete this profile?',
+    'confirm_delete_voucher'  => 'Really delete this voucher?',
+    'confirm_send_reset'      => 'Send a password reset link to {email}?',
+    'confirm_delete_token'    => 'Really delete the token?',
+
+    // Admin messages
+    'users_status_updated'  => 'User status updated!',
+    'sites_status_updated'  => 'Site status updated!',
+    'error_self_delete'     => 'You cannot delete yourself',
+    'error_self_deactivate' => 'You cannot deactivate yourself',
+    'error_self_demote'     => 'You cannot remove your own administrator rights',
+    'error_pw_mismatch'     => 'Passwords do not match',
+    'error_pw_current'      => 'Current password is incorrect',
+    'error_email_exists'    => 'Email address already exists',
+    'error_user_create'     => 'User could not be created',
+    'reset_link_sent'       => 'Password reset link has been sent to {email}.',
+    'reset_link_failed'     => 'User not found or no local password set.',
+    'cron_token_generated'  => 'New cron token generated!',
+    'cron_token_deleted'    => 'Cron token deleted!',
+    'm365_secret_hint'      => 'Leave empty to keep the current secret. To disable M365 login, clear the Client ID.',
+
+    // Site connection test
+    'site_test_btn'   => 'Test connection',
+    'site_test_ok'    => 'Connection successful',
+    'site_test_fail'  => 'Connection failed',
+
+    // System warnings
+    'crypto_warning'  => 'Encryption inactive: no valid APP_KEY is set in config.php. UniFi passwords are stored in plain text. If the APP_KEY changes (e.g. after a server move), controller logins will silently fail.',
 ];

@@ -86,3 +86,17 @@ rm    updater/storage/.maintenance     # wieder normal
 
 > Hinweis: Ein vollständiger Installations-Durchlauf (`action=install`) setzt
 > einen erreichbaren Update-Proxy unter den oben genannten URLs voraus.
+
+## Sicherheits-Hinweise & Limitierungen
+
+- **Keine Paket-Signatur:** Die Integrität der Updates hängt derzeit allein an
+  TLS zur Update-Proxy-URL. Der Updater validiert Zip-Einträge und Dateipfade
+  gegen Pfad-Traversal und legt vor dem Anwenden ein Backup an
+  (`updater/storage/.backup-last`), das bei Fehlern automatisch
+  zurückgespielt wird. Eine kryptografische Signaturprüfung der Pakete
+  (z.B. signierte SHA-256-Manifeste) erfordert serverseitige Unterstützung
+  des Update-Proxys und steht noch aus.
+- **Rollback:** Schlägt das Anwenden des Updates oder eine Migration fehl,
+  werden die überschriebenen Dateien aus dem Backup wiederhergestellt.
+  Datenbank-Migrationen werden dabei nicht automatisch rückgängig gemacht
+  (jede Migration läuft aber in einer eigenen Transaktion).

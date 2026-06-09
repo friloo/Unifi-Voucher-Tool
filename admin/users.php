@@ -165,6 +165,17 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['toggle_user'])) {
     } else { $error = __('error_csrf'); }
 }
 
+// 2FA eines Benutzers zurücksetzen (Admin-Hilfe bei verlorenem Authenticator)
+// POST + PRG wie die uebrigen state-aendernden Aktionen
+if ($_SERVER['REQUEST_METHOD']==='POST' && isset($_POST['reset_2fa'])) {
+    if ($auth->validateCsrfToken($_POST['csrf_token'] ?? '')) {
+        $auth->disableTotp((int)$_POST['reset_2fa']);
+        flashSet('2FA des Benutzers wurde zurückgesetzt.');
+        header('Location: users.php');
+        exit;
+    } else { $error = __('error_csrf'); }
+}
+
 if (empty($success) && empty($error) && ($flash = flashGet())) {
     $success = $flash['message'];
 }
@@ -323,6 +334,17 @@ $currentPage = 'users';
                                     <button type="submit" class="btn btn-warning btn-sm"
                                             title="<?= __('users_reset_pw') ?>" aria-label="<?= __('users_reset_pw') ?>">
                                         <i class="fas fa-key"></i>
+                                    </button>
+                                </form>
+                                <?php endif; ?>
+                                <?php if (!empty($user['totp_enabled'])): ?>
+                                <form method="post" style="display:inline;"
+                                      onsubmit="return confirm('2FA für <?= htmlspecialchars($user['email'], ENT_QUOTES) ?> zurücksetzen?')">
+                                    <input type="hidden" name="csrf_token" value="<?= $auth->getCsrfToken() ?>">
+                                    <input type="hidden" name="reset_2fa" value="<?= $user['id'] ?>">
+                                    <button type="submit" class="btn btn-secondary btn-sm"
+                                            title="2FA zurücksetzen" aria-label="2FA zurücksetzen">
+                                        <i class="fas fa-user-shield"></i>
                                     </button>
                                 </form>
                                 <?php endif; ?>

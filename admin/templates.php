@@ -30,13 +30,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_template'])) {
             $expireMin   = (int)($_POST['expire_minutes'] ?? 480);
             $description = trim($_POST['description'] ?? '');
 
+            $qosDown  = max(0, (int)($_POST['qos_rate_max_down'] ?? 0)) ?: null;
+            $qosUp    = max(0, (int)($_POST['qos_rate_max_up'] ?? 0)) ?: null;
+            $qosQuota = max(0, (int)($_POST['qos_usage_quota'] ?? 0)) ?: null;
+
             if (empty($name)) throw new Exception(__('error_name_req'));
             if ($maxUses < 1)  $maxUses = 1;
             if ($expireMin < 1) $expireMin = 60;
 
             $db->execute(
-                "INSERT INTO voucher_templates (name, max_uses, expire_minutes, description, created_by) VALUES (?, ?, ?, ?, ?)",
-                [$name, $maxUses, $expireMin, $description, $_SESSION['user_id']]
+                "INSERT INTO voucher_templates (name, max_uses, expire_minutes, description, qos_rate_max_down, qos_rate_max_up, qos_usage_quota, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [$name, $maxUses, $expireMin, $description, $qosDown, $qosUp, $qosQuota, $_SESSION['user_id']]
             );
             flashSet(__('templates_added'));
             header('Location: templates.php');
@@ -60,11 +64,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_template'])) {
             $description = trim($_POST['description'] ?? '');
             $isActive    = isset($_POST['is_active']) ? 1 : 0;
 
+            $qosDown  = max(0, (int)($_POST['qos_rate_max_down'] ?? 0)) ?: null;
+            $qosUp    = max(0, (int)($_POST['qos_rate_max_up'] ?? 0)) ?: null;
+            $qosQuota = max(0, (int)($_POST['qos_usage_quota'] ?? 0)) ?: null;
+
             if (empty($name)) throw new Exception(__('error_name_req'));
 
             $db->execute(
-                "UPDATE voucher_templates SET name=?, max_uses=?, expire_minutes=?, description=?, is_active=? WHERE id=?",
-                [$name, $maxUses, $expireMin, $description, $isActive, $id]
+                "UPDATE voucher_templates SET name=?, max_uses=?, expire_minutes=?, description=?, qos_rate_max_down=?, qos_rate_max_up=?, qos_usage_quota=?, is_active=? WHERE id=?",
+                [$name, $maxUses, $expireMin, $description, $qosDown, $qosUp, $qosQuota, $isActive, $id]
             );
             flashSet(__('templates_updated'));
             header('Location: templates.php');
@@ -209,7 +217,7 @@ $adminBase   = '';
                                 <?php endif; ?>
                             </td>
                             <td>
-                                <button onclick="openEditModal(<?= $t['id'] ?>, '<?= htmlspecialchars($t['name'], ENT_QUOTES) ?>', <?= (int)$t['max_uses'] ?>, <?= (int)$t['expire_minutes'] ?>, '<?= htmlspecialchars($t['description'] ?? '', ENT_QUOTES) ?>', <?= (int)$t['is_active'] ?>)"
+                                <button onclick="openEditModal(<?= $t['id'] ?>, '<?= htmlspecialchars($t['name'], ENT_QUOTES) ?>', <?= (int)$t['max_uses'] ?>, <?= (int)$t['expire_minutes'] ?>, '<?= htmlspecialchars($t['description'] ?? '', ENT_QUOTES) ?>', <?= (int)$t['is_active'] ?>, <?= (int)($t['qos_rate_max_down'] ?? 0) ?>, <?= (int)($t['qos_rate_max_up'] ?? 0) ?>, <?= (int)($t['qos_usage_quota'] ?? 0) ?>)"
                                         class="btn btn-secondary btn-small"><i class="fas fa-edit"></i></button>
                                 <form method="post" style="display:inline;"
                                       onsubmit="return confirm('<?= addslashes(__('confirm_delete_template')) ?>')">
@@ -255,6 +263,11 @@ $adminBase   = '';
                     </div>
                 </div>
                 <div class="form-group"><label><?= __('templates_desc') ?></label><textarea name="description" rows="2" placeholder="Kurze Beschreibung für Ihr Team"></textarea></div>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+                    <div class="form-group"><label>Download (kbit/s)</label><input type="number" name="qos_rate_max_down" min="0" placeholder="0 = unbegrenzt"></div>
+                    <div class="form-group"><label>Upload (kbit/s)</label><input type="number" name="qos_rate_max_up" min="0" placeholder="0 = unbegrenzt"></div>
+                    <div class="form-group"><label>Datenlimit (MB)</label><input type="number" name="qos_usage_quota" min="0" placeholder="0 = unbegrenzt"></div>
+                </div>
                 <div style="display:flex;gap:10px;margin-top:20px;">
                     <button type="submit" name="add_template" class="btn btn-primary" style="flex:1;"><i class="fas fa-save"></i> <?= __('btn_save') ?></button>
                     <button type="button" onclick="closeModal('addModal')" class="btn btn-secondary"><?= __('btn_cancel') ?></button>
@@ -287,6 +300,11 @@ $adminBase   = '';
                     </div>
                 </div>
                 <div class="form-group"><label><?= __('templates_desc') ?></label><textarea name="description" id="editDesc" rows="2"></textarea></div>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+                    <div class="form-group"><label>Download (kbit/s)</label><input type="number" name="qos_rate_max_down" id="editQosDown" min="0" placeholder="0 = unbegrenzt"></div>
+                    <div class="form-group"><label>Upload (kbit/s)</label><input type="number" name="qos_rate_max_up" id="editQosUp" min="0" placeholder="0 = unbegrenzt"></div>
+                    <div class="form-group"><label>Datenlimit (MB)</label><input type="number" name="qos_usage_quota" id="editQosQuota" min="0" placeholder="0 = unbegrenzt"></div>
+                </div>
                 <div class="checkbox-group" style="margin-bottom:20px;">
                     <input type="checkbox" name="is_active" id="editActive">
                     <label for="editActive" style="margin:0;"><?= __('status_active') ?></label>
@@ -304,13 +322,16 @@ $adminBase   = '';
 <script>
 function openAddModal()  { document.getElementById('addModal').classList.add('active'); }
 function closeModal(id)  { document.getElementById(id).classList.remove('active'); }
-function openEditModal(id, name, maxUses, expMin, desc, isActive) {
+function openEditModal(id, name, maxUses, expMin, desc, isActive, qosDown, qosUp, qosQuota) {
     document.getElementById('editId').value       = id;
     document.getElementById('editName').value     = name;
     document.getElementById('editMaxUses').value  = maxUses;
     document.getElementById('editExpireMin').value = expMin;
     document.getElementById('editDesc').value     = desc;
     document.getElementById('editActive').checked = isActive == 1;
+    document.getElementById('editQosDown').value  = qosDown || '';
+    document.getElementById('editQosUp').value    = qosUp || '';
+    document.getElementById('editQosQuota').value = qosQuota || '';
     document.getElementById('editModal').classList.add('active');
 }
 ['addModal','editModal'].forEach(id => {

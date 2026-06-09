@@ -1,0 +1,38 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8080:80"
+    environment:
+      DB_HOST: db
+      DB_NAME: unifi_voucher
+      DB_USER: unifi_voucher
+      DB_PASS: change_me
+      # Dauerhaft setzen! Sonst koennen verschluesselte Werte nach Neustart
+      # nicht mehr gelesen werden. Erzeugen: php -r "echo base64_encode(random_bytes(32));"
+      APP_KEY: ""
+      TZ: Europe/Berlin
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: mariadb:11
+    environment:
+      MARIADB_DATABASE: unifi_voucher
+      MARIADB_USER: unifi_voucher
+      MARIADB_PASSWORD: change_me
+      MARIADB_ROOT_PASSWORD: change_me_root
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./database.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  db_data:

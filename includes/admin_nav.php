@@ -110,8 +110,26 @@ $lang        = I18n::getLanguage();
             <li><a href="<?= $adminBase ?? '' ?>audit_log.php" class="<?= $currentPage === 'audit_log' ? 'active' : '' ?>">
                 <i class="fas fa-history"></i> <?= __('nav_audit_log') ?>
             </a></li>
+            <li><a href="<?= $adminBase ?? '' ?>reports.php" class="<?= $currentPage === 'reports' ? 'active' : '' ?>">
+                <i class="fas fa-chart-line"></i> <?= __('nav_reports') ?>
+            </a></li>
+            <li><a href="<?= $adminBase ?? '' ?>import.php" class="<?= $currentPage === 'import' ? 'active' : '' ?>">
+                <i class="fas fa-file-import"></i> <?= __('nav_import') ?>
+            </a></li>
             <li><a href="<?= $adminBase ?? '' ?>settings.php" class="<?= $currentPage === 'settings' ? 'active' : '' ?>">
                 <i class="fas fa-cog"></i> <?= __('nav_settings') ?>
+            </a></li>
+            <li><a href="<?= $adminBase ?? '' ?>api_keys.php" class="<?= $currentPage === 'api_keys' ? 'active' : '' ?>">
+                <i class="fas fa-key"></i> <?= __('nav_api_keys') ?>
+            </a></li>
+            <li><a href="<?= $adminBase ?? '' ?>security.php" class="<?= $currentPage === 'security' ? 'active' : '' ?>">
+                <i class="fas fa-user-shield"></i> <?= __('nav_security') ?>
+            </a></li>
+            <li><a href="<?= $adminBase ?? '' ?>integrations.php" class="<?= $currentPage === 'integrations' ? 'active' : '' ?>">
+                <i class="fas fa-plug"></i> <?= __('nav_integrations') ?>
+            </a></li>
+            <li><a href="<?= $adminBase ?? '' ?>backup.php" class="<?= $currentPage === 'backup' ? 'active' : '' ?>">
+                <i class="fas fa-database"></i> <?= __('nav_backup') ?>
             </a></li>
             <li><a href="<?= $adminBase ?? '' ?>update.php" class="<?= $currentPage === 'update' ? 'active' : '' ?>">
                 <i class="fas fa-sync-alt"></i> <?= __('nav_update') ?>

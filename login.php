@@ -19,8 +19,21 @@ I18n::init();
 
 $error   = '';
 $success = '';
+$show2fa = false;
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['totp_code'])) {
+    // Zweiter Login-Schritt: 2FA-Code
+    try {
+        if ($auth->verifyTotpLogin(trim($_POST['totp_code']))) {
+            header('Location: index.php');
+            exit;
+        }
+        $error   = 'Code ungültig oder abgelaufen. Bitte erneut versuchen.';
+        $show2fa = $auth->isTotpPending();
+    } catch (Exception $e) {
+        $error = 'Login-Fehler: ' . $e->getMessage();
+    }
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $email    = trim($_POST['email'] ?? '');
         $password = $_POST['password'] ?? '';
@@ -32,6 +45,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($result === true) {
                 header('Location: index.php');
                 exit;
+            } elseif ($result === 'totp_required') {
+                $show2fa = true;
             } elseif ($result === 'rate_limited') {
                 $error = __('login_error_rate');
             } else {
@@ -41,6 +56,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } catch (Exception $e) {
         $error = 'Login-Fehler: ' . $e->getMessage();
     }
+}
+
+// Direkter Aufruf mit ?2fa=1 (z.B. nach Redirect) und noch ausstehendem Login
+if (!$show2fa && isset($_GET['2fa']) && $auth->isTotpPending()) {
+    $show2fa = true;
 }
 
 try {
@@ -73,6 +93,27 @@ try {
         ];
         $_SESSION['m365_state'] = $params['state'];
         $m365LoginUrl = "https://login.microsoftonline.com/$m365TenantId/oauth2/v2.0/authorize?" . http_build_query($params);
+    }
+
+    // Generisches OIDC (optional)
+    $oidcEnabled  = $db->getSetting('oidc_enabled', '0') === '1'
+        && $db->getSetting('oidc_client_id', '') !== ''
+        && $db->getSetting('oidc_auth_url', '') !== '';
+    $oidcName     = $db->getSetting('oidc_name', 'SSO');
+    $oidcLoginUrl = '';
+    if ($oidcEnabled) {
+        $protocol   = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
+        $scriptPath = dirname($_SERVER['SCRIPT_NAME']);
+        $scriptPath = $scriptPath === '/' ? '' : $scriptPath;
+        $oidcState  = bin2hex(random_bytes(16));
+        $_SESSION['oidc_state'] = $oidcState;
+        $oidcLoginUrl = rtrim($db->getSetting('oidc_auth_url', ''), '?') . '?' . http_build_query([
+            'client_id'     => $db->getSetting('oidc_client_id', ''),
+            'response_type' => 'code',
+            'redirect_uri'  => $protocol . '://' . $_SERVER['HTTP_HOST'] . $scriptPath . '/oidc_callback.php',
+            'scope'         => $db->getSetting('oidc_scopes', 'openid profile email'),
+            'state'         => $oidcState,
+        ]);
     }
 
     $showLocalLogin = isset($_GET['local']) && $_GET['local'] === '1';
@@ -147,7 +188,23 @@ try {
         <div class="alert alert-success"><?= htmlspecialchars($success) ?></div>
     <?php endif; ?>
 
-    <?php if ($m365Enabled && !$showLocalLogin): ?>
+    <?php if ($show2fa): ?>
+        <form method="post">
+            <p style="color:var(--text-secondary,#666);font-size:14px;margin-bottom:18px;">
+                Bitte geben Sie den 6-stelligen Code aus Ihrer Authenticator-App ein
+                – oder einen Ihrer Recovery-Codes.
+            </p>
+            <div class="form-group">
+                <label for="totp_code">Code</label>
+                <input type="text" id="totp_code" name="totp_code" maxlength="9"
+                       autocomplete="one-time-code" required autofocus
+                       placeholder="123456 oder XXXX-XXXX"
+                       style="letter-spacing:3px;text-align:center;font-size:18px;">
+            </div>
+            <button type="submit" class="btn">Bestätigen</button>
+        </form>
+        <a href="login.php" class="local-login-link">Abbrechen</a>
+    <?php elseif ($m365Enabled && !$showLocalLogin): ?>
         <a href="<?= htmlspecialchars($m365LoginUrl) ?>" class="btn-microsoft">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 23 23">
                 <path fill="#f35325" d="M1 1h10v10H1z"/>
@@ -186,6 +243,13 @@ try {
                 <?= __('login_ms') ?>
             </a>
         <?php endif; ?>
+    <?php endif; ?>
+
+    <?php if (!$show2fa && $oidcEnabled): ?>
+        <div class="divider"><span><?= __('or') ?></span></div>
+        <a href="<?= htmlspecialchars($oidcLoginUrl) ?>" class="btn" style="display:block;text-align:center;text-decoration:none;background:#444;">
+            🔑 <?= htmlspecialchars($oidcName) ?>
+        </a>
     <?php endif; ?>
 
     <?php if ($publicAccess): ?>

@@ -1,0 +1,14 @@
+# Dev-/Test-Abhängigkeiten (Laufzeit braucht KEIN composer)
+/vendor/
+composer.lock
+.phpunit.result.cache
+.phpunit.cache/
+
+# Updater-Laufzeitdaten
+/updater/storage/.version
+/updater/storage/.maintenance
+/updater/storage/.update-progress
+/updater/storage/.update.zip
+/updater/storage/.update-staging/
+/updater/storage/.migrations-lock
+/updater/storage/updater-settings.json

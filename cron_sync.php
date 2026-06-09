@@ -90,6 +90,7 @@ set_exception_handler(function($e) use ($isCli) {
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/includes/Database.php';
 require_once __DIR__ . '/includes/UniFiController.php';
+require_once __DIR__ . '/includes/Notifier.php';
 
 $db = Database::getInstance();
 
@@ -196,6 +197,9 @@ try {
             $siteResult['error'] = $e->getMessage();
             $totalStats['sites_failed']++;
             logMessage("  FEHLER - " . $e->getMessage(), $isCli);
+            if (class_exists('Notifier')) {
+                Notifier::controllerUnreachable($site['name'], $e->getMessage());
+            }
         }
 
         $results[] = $siteResult;

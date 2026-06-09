@@ -33,12 +33,23 @@ class Mailer {
     }
 
     public function send($to, $subject, $body, $isHtml = false) {
-        if (!$this->smtpEnabled || empty($this->smtpHost)) {
-            // Fallback auf PHP mail()
-            return $this->sendWithPhpMail($to, $subject, $body);
+        // Bis zu 2 Versuche bei vorübergehenden Zustellfehlern (Retry).
+        $attempts = 2;
+        for ($i = 1; $i <= $attempts; $i++) {
+            if (!$this->smtpEnabled || empty($this->smtpHost)) {
+                $ok = $this->sendWithPhpMail($to, $subject, $body);
+            } else {
+                $ok = $this->sendWithSmtp($to, $subject, $body, $isHtml);
+            }
+            if ($ok) {
+                return true;
+            }
+            if ($i < $attempts) {
+                usleep(500000); // 0,5s vor erneutem Versuch
+            }
         }
-        
-        return $this->sendWithSmtp($to, $subject, $body, $isHtml);
+        error_log("Mailer: Zustellung an {$to} nach {$attempts} Versuchen fehlgeschlagen.");
+        return false;
     }
     
     private function sendWithPhpMail($to, $subject, $body) {

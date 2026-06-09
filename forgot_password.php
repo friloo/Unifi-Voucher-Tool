@@ -35,12 +35,21 @@ $success = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = trim($_POST['email'] ?? '');
 
-    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    // Einfacher Throttle: max. 3 Anfragen pro 15 Minuten je Session (gegen Spam)
+    $now = time();
+    $rl = array_values(array_filter($_SESSION['pwreset_times'] ?? [], fn($t) => ($now - $t) < 900));
+    if (count($rl) >= 3) {
+        $error = 'Zu viele Anfragen. Bitte warten Sie einige Minuten.';
+    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $error = __('error_email_invalid');
     } else {
-        // IP-Rate-Limit gegen Mail-Bombing: max. 5 Reset-Anfragen / 15 Min.
-        // Bei Limit trotzdem die generische Erfolgsmeldung zeigen (keine
-        // Information darueber preisgeben, ob das Konto existiert).
+        $rl[] = $now;
+        $_SESSION['pwreset_times'] = $rl;
+
+        // Zusaetzlich zum Session-Throttle: IP-Rate-Limit gegen Mail-Bombing
+        // (max. 5 Reset-Anfragen / 15 Min., umgeht Cookie-Loeschen). Bei Limit
+        // trotzdem die generische Erfolgsmeldung zeigen (keine Information
+        // darueber preisgeben, ob das Konto existiert).
         $resetLimited = throttleHit($db, 'password_reset', 5, 15) === true;
 
         $user = $resetLimited

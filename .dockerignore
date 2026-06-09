@@ -1,0 +1,9 @@
+.git
+.github
+docs
+*.md
+config.php
+updater/storage/.version
+updater/storage/.maintenance
+updater/storage/.update-staging
+updater/storage/updater-settings.json

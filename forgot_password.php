@@ -24,9 +24,16 @@ $success = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = trim($_POST['email'] ?? '');
 
-    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    // Einfacher Throttle: max. 3 Anfragen pro 15 Minuten je Session (gegen Spam)
+    $now = time();
+    $rl = array_values(array_filter($_SESSION['pwreset_times'] ?? [], fn($t) => ($now - $t) < 900));
+    if (count($rl) >= 3) {
+        $error = 'Zu viele Anfragen. Bitte warten Sie einige Minuten.';
+    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         $error = __('error_email_invalid');
     } else {
+        $rl[] = $now;
+        $_SESSION['pwreset_times'] = $rl;
         $user = $db->fetchOne("SELECT * FROM users WHERE email = ? AND is_active = 1 AND password_hash IS NOT NULL", [$email]);
 
         // Always show success (don't reveal whether email exists)

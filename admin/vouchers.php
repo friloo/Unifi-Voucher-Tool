@@ -96,6 +96,25 @@ if (isset($_POST['ajax_delete']) && isset($_POST['voucher_id']) && isset($_POST[
     exit;
 }
 
+// Voucher-Code per E-Mail (erneut) versenden
+if (isset($_POST['ajax_resend']) && isset($_POST['voucher_id']) && isset($_POST['site_id'])) {
+    header('Content-Type: application/json');
+    if (!$auth->validateCsrfToken($_POST['csrf_token']??'')) { echo json_encode(['success'=>false,'message'=>__('error_csrf')]); exit; }
+    require_once __DIR__ . '/../includes/Mailer.php';
+    $email = trim($_POST['email'] ?? '');
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) { echo json_encode(['success'=>false,'message'=>'Ungültige E-Mail-Adresse']); exit; }
+    $siteId = (int)$_POST['site_id'];
+    $site = $db->fetchOne("SELECT * FROM sites WHERE id=?", [$siteId]);
+    $v = $db->fetchOne("SELECT * FROM vouchers WHERE unifi_voucher_id=? AND site_id=?", [$_POST['voucher_id'], $siteId]);
+    if (!$site || !$v) { echo json_encode(['success'=>false,'message'=>'Voucher nicht gefunden']); exit; }
+    $mailer = new Mailer();
+    $code = strpos($v['voucher_code'], '-') !== false ? $v['voucher_code'] : implode('-', str_split($v['voucher_code'], 5));
+    $ok = $mailer->sendVoucherEmail($email, $code, $site['name'], (int)$v['max_uses']);
+    $auth->writeAuditLog($_SESSION['user_id'], 'voucher_resend', 'voucher', $v['id'], "Code an $email gesendet");
+    echo json_encode(['success'=>$ok, 'message'=>$ok ? 'E-Mail versendet.' : 'Versand fehlgeschlagen.']);
+    exit;
+}
+
 $sites = $db->fetchAll("SELECT * FROM sites WHERE is_active=1 ORDER BY name");
 $siteStats = [];
 foreach ($sites as $site) {
@@ -383,7 +402,10 @@ function renderVouchers() {
             <td>${statusBadge}</td>
             <td><div class="usage-info"><span>${v.used}/${v.quota>0?v.quota:'∞'}</span>${v.quota>0?`<div class="usage-bar"><div class="usage-bar-fill" style="width:${usagePct}%"></div></div>`:''}</div></td>
             <td>${remaining?`<span style="color:var(--success)"><i class="fas fa-clock"></i> ${remaining}</span><br>`:''}<small style="color:var(--text-muted)">${v.duration} Min.</small></td>
-            <td><button onclick="deleteVoucher('${v._id}')" class="btn btn-danger btn-sm" title="<?= __('btn_delete') ?>"><i class="fas fa-trash"></i></button></td>
+            <td style="white-space:nowrap;">
+                <button onclick="resendVoucher('${v._id}','${escapeHtml(v.formatted_code||'')}')" class="btn btn-secondary btn-sm" title="Per E-Mail senden"><i class="fas fa-envelope"></i></button>
+                <button onclick="deleteVoucher('${v._id}')" class="btn btn-danger btn-sm" title="<?= __('btn_delete') ?>"><i class="fas fa-trash"></i></button>
+            </td>
         </tr>`;
     });
 
@@ -406,6 +428,20 @@ function renderVouchers() {
 }
 
 function escapeHtml(t) { const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
+
+async function resendVoucher(voucherId, code) {
+    const email = prompt('Code ' + code + ' senden an (E-Mail):');
+    if (!email) return;
+    const fd = new FormData();
+    fd.append('ajax_resend','1'); fd.append('voucher_id',voucherId);
+    fd.append('site_id', currentSiteId); fd.append('email', email);
+    fd.append('csrf_token', csrfToken);
+    try {
+        const r = await fetch('vouchers.php', {method:'POST', body:fd});
+        const d = await r.json();
+        (window.showToast ? showToast(d.message, d.success?'success':'error') : alert(d.message));
+    } catch(e){ alert('Fehler: '+e.message); }
+}
 
 async function deleteVoucher(voucherId) {
     if (!confirm('Voucher wirklich löschen?')) return;

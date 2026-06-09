@@ -1,0 +1,6 @@
+parameters:
+    level: 5
+    paths:
+        - includes/Totp.php
+        - includes/Crypto.php
+        - includes/ApiKey.php

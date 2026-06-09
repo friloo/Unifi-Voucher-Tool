@@ -30,6 +30,9 @@ CREATE TABLE IF NOT EXISTS `users` (
   `is_admin` TINYINT(1) DEFAULT 0,
   `is_active` TINYINT(1) DEFAULT 1,
   `microsoft_id` VARCHAR(255) UNIQUE,
+  `totp_secret` VARCHAR(64) NULL,
+  `totp_enabled` TINYINT(1) NOT NULL DEFAULT 0,
+  `totp_backup_codes` TEXT NULL,
   `last_login` TIMESTAMP NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -53,11 +56,37 @@ CREATE TABLE IF NOT EXISTS `voucher_templates` (
   `max_uses` INT NOT NULL DEFAULT 1,
   `expire_minutes` INT NOT NULL DEFAULT 480,
   `description` VARCHAR(500),
+  `qos_rate_max_down` INT NULL,
+  `qos_rate_max_up` INT NULL,
+  `qos_usage_quota` INT NULL,
   `is_active` TINYINT(1) DEFAULT 1,
   `created_by` INT,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (`created_by`) REFERENCES `users`(`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `api_keys` (
+  `id` INT PRIMARY KEY AUTO_INCREMENT,
+  `name` VARCHAR(255) NOT NULL,
+  `key_prefix` VARCHAR(16) NOT NULL,
+  `key_hash` VARCHAR(255) NOT NULL,
+  `scope` VARCHAR(16) NOT NULL DEFAULT 'write',
+  `rate_limit` INT NOT NULL DEFAULT 0,
+  `created_by` INT,
+  `last_used_at` TIMESTAMP NULL,
+  `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (`created_by`) REFERENCES `users`(`id`) ON DELETE SET NULL,
+  INDEX `idx_prefix` (`key_prefix`),
+  INDEX `idx_active` (`is_active`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `api_key_hits` (
+  `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
+  `api_key_id` INT NOT NULL,
+  `hit_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_key_time` (`api_key_id`, `hit_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `vouchers` (
@@ -85,7 +114,7 @@ CREATE TABLE IF NOT EXISTS `vouchers` (
 
 CREATE TABLE IF NOT EXISTS `sessions` (
   `id` VARCHAR(128) PRIMARY KEY,
-  `user_id` INT NOT NULL,
+  `user_id` INT NULL,
   `data` TEXT,
   `expires_at` TIMESTAMP NOT NULL,
   `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
